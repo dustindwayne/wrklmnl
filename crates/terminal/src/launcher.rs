@@ -46,14 +46,8 @@ impl Workspace {
         let saved = std::fs::read(&settings)
             .ok()
             .and_then(|data| serde_json::from_slice::<PathBuf>(&data).ok());
-        let desktop = desktop();
-        let organized = desktop
-            .as_ref()
-            .map(|path| path.join("Organized Desktop"))
-            .filter(|path| path.is_dir());
         let root = saved
-            .or(organized)
-            .or(desktop)
+            .or_else(desktop)
             .unwrap_or_else(|| fallback.to_path_buf());
         let layout_file = state.with_extension("desktop-layout.json");
         let positions = std::fs::read(&layout_file)
@@ -1014,7 +1008,7 @@ mod tests {
     #[test]
     fn existing_workspace_is_saved_and_reopened_in_place() -> anyhow::Result<()> {
         let temp = tempfile::tempdir_in(std::env::current_dir()?)?;
-        let folder = temp.path().join("Organized Desk");
+        let folder = temp.path().join("Test workspace");
         std::fs::create_dir(&folder)?;
         let file = folder.join("notes.txt");
         std::fs::write(&file, "keep")?;

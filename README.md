@@ -8,7 +8,7 @@ A native workspace for your files, shells, and connections. Point it at your des
 
 ## Start with a folder
 
-Open WRKLMNL, then choose a folder in **Settings → Workspace**. On Windows, launch the executable from the [latest build](https://github.com/dustindwayne/wrklmnl/releases/latest). **Use Desktop** points the app at your system Desktop. WRKLMNL starts in **Organized Desktop** if that folder already exists on your Desktop.
+Open WRKLMNL, then choose a folder in **Settings → Workspace**. On Windows, launch the executable from the [latest build](https://github.com/dustindwayne/wrklmnl/releases/latest). **Use Desktop** points the app at your system Desktop.
 
 ## Dashboard
 

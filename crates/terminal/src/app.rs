@@ -18,6 +18,7 @@ pub struct App {
     session: Option<Session>,
     shell_catalog: crate::shell_catalog::Catalog,
     workspace: crate::workspace_ui::Workspace,
+    layout: crate::workspace_layout::Layout,
     show_shell_picker: bool,
     file_picker: crate::file_picker::Picker,
     bar_picker: Option<crate::bar_background::Bar>,
@@ -47,6 +48,7 @@ pub struct App {
     connections: crate::connections::panel::Panel,
     launcher: crate::launcher::Workspace,
     appearance_edit: crate::appearance::Appearance,
+    accent_save_pending: bool,
     quit_pending: bool,
     quit_approved: bool,
 }
@@ -97,6 +99,15 @@ impl App {
         if let Err(e) = appearance.apply(&cc.egui_ctx) {
             status = format!("Font settings: {e}");
         }
+        let layout = match crate::workspace_layout::Layout::load(
+            &options.state.with_file_name("layout.json"),
+        ) {
+            Ok(layout) => layout,
+            Err(error) => {
+                status = format!("Layout could not load: {error}");
+                Default::default()
+            }
+        };
         let launcher = crate::launcher::Workspace::new(&options.state, &options.cwd);
         let mut app = Self {
             folder: crate::history::display_path(if options.session {
@@ -110,6 +121,7 @@ impl App {
             session: None,
             shell_catalog: Default::default(),
             workspace: Default::default(),
+            layout,
             show_shell_picker: false,
             file_picker: Default::default(),
             bar_picker: None,
@@ -148,6 +160,7 @@ impl App {
             connections: Default::default(),
             launcher,
             appearance_edit: appearance.clone(),
+            accent_save_pending: false,
             quit_pending: false,
             quit_approved: false,
             options,
@@ -228,6 +241,24 @@ impl App {
             }
             if let Ok(view) = std::env::var("DTERM_CAPTURE_CONNECTION") {
                 app.connections.capture_view(&view, app.launcher.root());
+            }
+        }
+        #[cfg(feature = "capture")]
+        if app.capture.is_some() {
+            match std::env::var("DTERM_CAPTURE_SETTINGS").as_deref() {
+                Ok("backgrounds" | "background-picker") => {
+                    app.page = 4;
+                    app.settings_tab = 3;
+                    if std::env::var("DTERM_CAPTURE_SETTINGS").as_deref() == Ok("background-picker")
+                    {
+                        app.bar_picker = Some(crate::bar_background::Bar::Top);
+                        app.file_picker.start_image(
+                            app.launcher.root().to_path_buf(),
+                            app.appearance_edit.top_background.path.as_deref(),
+                        );
+                    }
+                }
+                _ => {}
             }
         }
         app
@@ -353,10 +384,6 @@ impl App {
             if self.options.light {
                 cmd.arg("--light");
             }
-            cmd.arg("--accent").arg(format!(
-                "{:02x}{:02x}{:02x}",
-                self.options.accent[0], self.options.accent[1], self.options.accent[2]
-            ));
             if let Some(font) = &self.options.font {
                 cmd.arg("--font").arg(font);
             }
@@ -521,19 +548,7 @@ impl App {
             .replace("content[] #CUSTOM", &custom)
     }
     fn workspace_navigation(&mut self, ui: &mut egui::Ui, compact: bool) {
-        let mut source = crate::workspace_ui::NAVIGATION.replace(
-            "content[] #EDITOR",
-            if self.editor.has_document() {
-                "item[ico:code > Editor@page_5]"
-            } else {
-                "gap:0"
-            },
-        );
-        if compact {
-            source = source
-                .replace(r#"t:"Workspace""#, "gap:0")
-                .replace(r#"t:"Build""#, "gap:0");
-        }
+        let source = self.layout.navigation(self.editor.has_document(), compact);
         let selected = format!("page_{}", self.page);
         self.workspace_render(
             ui,
@@ -618,6 +633,11 @@ impl App {
         ui.horizontal(|ui| {
             ui.heading("Dashboard");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if crate::icons::button(ui, crate::icons::Icon::Grid, "Arrange dashboard").clicked()
+                {
+                    self.page = 4;
+                    self.settings_tab = 4;
+                }
                 if crate::widgets::button(ui, "Recent locations").clicked() {
                     self.page = 8;
                 }
@@ -626,63 +646,44 @@ impl App {
         ui.separator();
         ui.add_space(8.0);
 
-        let padding = 16;
-        let panel = egui::Frame::NONE
-            .inner_margin(padding)
-            .corner_radius(radius);
-        let notes_height =
-            viewport_height - (ui.next_widget_position().y - top) - 2.0 * f32::from(padding) - 2.0;
-        let divider = Color32::from_gray(if self.options.light { 219 } else { 52 });
-        let notes = panel
-            .fill(Color32::from_gray(if self.options.light {
-                255
-            } else {
-                22
-            }))
-            .stroke(egui::Stroke::new(1.0_f32, divider));
-        let activity = panel.fill(Color32::from_gray(if self.options.light {
-            243
-        } else {
-            20
-        }));
-        let render_notes = |app: &mut Self, ui: &mut egui::Ui, width: f32| {
-            notes
-                .show(ui, |ui| {
-                    ui.set_width(width - 2.0 * f32::from(padding) - 2.0);
-                    app.scratchpad.show(ui, app.launcher.root(), notes_height)
-                })
-                .inner
-        };
-        let render_activity = |app: &mut Self, ui: &mut egui::Ui, width: f32| {
-            activity.show(ui, |ui| {
-                ui.set_width(width - 2.0 * f32::from(padding));
-                app.dashboard_activity(ui);
-            });
-        };
+        let height = viewport_height - (ui.next_widget_position().y - top);
+        let [primary, second, third] = self.layout.dashboard;
         let target = if width >= 680.0 {
             ui.horizontal_top(|ui| {
                 let gap = 20.0;
                 ui.spacing_mut().item_spacing.x = gap;
-                let notes_width = ((width - gap) * 0.62).min(width - gap - 260.0);
-                let activity_width = width - gap - notes_width;
-                let column = egui::Layout::top_down(egui::Align::Min);
-                let target = ui
-                    .allocate_ui_with_layout(egui::vec2(notes_width, 0.0), column, |ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        render_notes(self, ui, notes_width)
-                    })
-                    .inner;
-                ui.allocate_ui_with_layout(egui::vec2(activity_width, 0.0), column, |ui| {
-                    render_activity(self, ui, activity_width);
-                });
+                let wide = ((width - gap) * 0.62).min(width - gap - 260.0);
+                let narrow = width - gap - wide;
+                let primary_modules = [primary];
+                let primary_column = (wide, primary_modules.as_slice());
+                let secondary_modules = [second, third];
+                let secondary_column = (narrow, secondary_modules.as_slice());
+                let columns = if self.layout.primary_on_right {
+                    [secondary_column, primary_column]
+                } else {
+                    [primary_column, secondary_column]
+                };
+                let mut target = None;
+                for (width, modules) in columns {
+                    let result = ui
+                        .allocate_ui_with_layout(
+                            egui::vec2(width, 0.0),
+                            egui::Layout::top_down(egui::Align::Min),
+                            |ui| {
+                                ui.spacing_mut().item_spacing.x = 12.0;
+                                self.dashboard_column(ui, width, height, modules)
+                            },
+                        )
+                        .inner;
+                    target = target.or(result);
+                }
                 target
             })
             .inner
         } else {
-            let target = render_notes(self, ui, width);
-            ui.add_space(8.0);
-            render_activity(self, ui, width);
-            target
+            let target = self.dashboard_column(ui, width, height, &[primary]);
+            let secondary = self.dashboard_column(ui, width, height, &[second, third]);
+            target.or(secondary)
         };
         if let Some(target) = target {
             use crate::scratchpad::Target;
@@ -704,15 +705,61 @@ impl App {
         }
     }
 
-    fn dashboard_activity(&mut self, ui: &mut egui::Ui) {
-        ui.spacing_mut().item_spacing.y = 7.0;
-        if self.connections.overview(ui) {
-            self.page = 3;
+    fn dashboard_column(
+        &mut self,
+        ui: &mut egui::Ui,
+        width: f32,
+        height: f32,
+        modules: &[crate::workspace_layout::Module],
+    ) -> Option<crate::scratchpad::Target> {
+        use crate::workspace_layout::Module;
+        let padding = 16;
+        let mut target = None;
+        for module in modules {
+            let notes = *module == Module::Scratchpad;
+            let fill = match (self.options.light, notes) {
+                (true, true) => 255,
+                (true, false) => 243,
+                (false, true) => 22,
+                (false, false) => 20,
+            };
+            let mut frame = egui::Frame::NONE
+                .inner_margin(padding)
+                .corner_radius(4)
+                .fill(Color32::from_gray(fill));
+            if notes {
+                let divider = Color32::from_gray(if self.options.light { 219 } else { 52 });
+                frame = frame.stroke(egui::Stroke::new(1.0_f32, divider));
+            }
+            let inset = 2.0 * f32::from(padding) + if notes { 2.0 } else { 0.0 };
+            frame.show(ui, |ui| {
+                ui.set_width(width - inset);
+                match module {
+                    Module::Scratchpad => {
+                        let notes_height = if modules.len() == 1 {
+                            height - inset
+                        } else {
+                            280.0
+                        };
+                        target = self.scratchpad.show(ui, self.launcher.root(), notes_height);
+                    }
+                    Module::Connections => {
+                        ui.spacing_mut().item_spacing.y = 7.0;
+                        if self.connections.overview(ui) {
+                            self.page = 3;
+                        }
+                    }
+                    Module::Terminals => {
+                        ui.spacing_mut().item_spacing.y = 7.0;
+                        self.dashboard_terminals(ui);
+                    }
+                }
+            });
         }
+        target
+    }
 
-        ui.add_space(8.0);
-        ui.separator();
-        ui.add_space(8.0);
+    fn dashboard_terminals(&mut self, ui: &mut egui::Ui) {
         ui.heading("Terminals");
         let sessions = self.dock.overview(self.session.as_ref());
         if sessions.is_empty() {
@@ -740,6 +787,161 @@ impl App {
             self.page = 1;
             self.show_shell_picker = sessions.is_empty();
             self.focus_terminal = !sessions.is_empty();
+        }
+    }
+
+    fn settings(&mut self, ui: &mut egui::Ui) {
+        use crate::bar_background::Bar;
+        ui.set_max_width(ui.available_width().min(980.0));
+        ui.heading("Settings");
+        ui.horizontal_wrapped(|ui| {
+            for (tab, name) in [
+                (0, "Workspace"),
+                (1, "Appearance"),
+                (3, "Backgrounds"),
+                (2, "Custom shells"),
+                (4, "Layout"),
+            ] {
+                if crate::widgets::text_tab(ui, name, self.settings_tab == tab).clicked() {
+                    self.settings_tab = tab;
+                }
+            }
+        });
+        ui.separator();
+
+        match self.settings_tab {
+            0 => {
+                self.launcher.settings(ui);
+                return;
+            }
+            2 => {
+                let path = self.options.state.with_file_name("custom-shells.json");
+                if self.custom_shells.show(ui, &path) {
+                    self.shell_picker_file = true;
+                    self.file_picker
+                        .start_executable(self.launcher.root().to_path_buf());
+                }
+                return;
+            }
+            _ => {}
+        }
+
+        if self.settings_tab == 4 {
+            let mut layout = self.layout.clone();
+            layout.controls(ui);
+            if layout != self.layout {
+                match layout.save(&self.options.state.with_file_name("layout.json")) {
+                    Ok(()) => {
+                        self.layout = layout;
+                        ui.ctx().request_repaint();
+                    }
+                    Err(error) => self.status = format!("Layout could not save: {error}"),
+                }
+            }
+            return;
+        }
+
+        let draft = &self.appearance_edit;
+        let dirty = draft != &self.appearance;
+        let backgrounds_ready = (draft.top_background == self.appearance.top_background
+            || self
+                .top_background
+                .ready(draft.preset, &draft.top_background))
+            && (draft.side_background == self.appearance.side_background
+                || self
+                    .side_background
+                    .ready(draft.preset, &draft.side_background));
+        let mut apply = false;
+        let mut revert = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.heading(if self.settings_tab == 3 {
+                "Backgrounds"
+            } else {
+                "Appearance"
+            });
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                apply = ui
+                    .add_enabled(
+                        dirty && backgrounds_ready,
+                        egui::Button::new("Apply changes").fill(ui.visuals().selection.bg_fill),
+                    )
+                    .clicked();
+                if dirty {
+                    revert = crate::widgets::button(ui, "Discard changes").clicked();
+                }
+            });
+        });
+
+        if revert {
+            self.accent_save_pending = false;
+            self.appearance_edit = self.appearance.clone();
+            ui.ctx().request_repaint();
+        }
+        if self.settings_tab == 3 {
+            ui.weak("Preview an image on each bar. Apply changes to keep it.");
+            ui.add_space(8.0);
+            let workspace = self.launcher.root();
+            let preset = self.appearance_edit.preset;
+            for (bar, slot, settings) in [
+                (
+                    Bar::Top,
+                    &self.top_background,
+                    &mut self.appearance_edit.top_background,
+                ),
+                (
+                    Bar::Side,
+                    &self.side_background,
+                    &mut self.appearance_edit.side_background,
+                ),
+            ] {
+                if background_card(ui, bar, preset, slot, settings) {
+                    self.bar_picker = Some(bar);
+                    self.file_picker
+                        .start_image(workspace.to_path_buf(), settings.path.as_deref());
+                }
+            }
+        } else {
+            self.appearance_edit.controls(ui);
+        }
+
+        let ctx = ui.ctx();
+        if self.options.accent != self.appearance_edit.accent {
+            self.options.accent = self.appearance_edit.accent;
+            self.accent_save_pending = self.appearance_edit.accent != self.appearance.accent;
+            crate::theme::apply_accent(ctx, self.options.light, self.options.accent);
+            ctx.request_repaint();
+        }
+        if apply {
+            let path = self.options.state.with_file_name("appearance.json");
+            let mut draft = self.appearance_edit.clone();
+            if draft.accent == self.appearance.accent {
+                if let Ok(saved) = crate::appearance::Appearance::load(&path) {
+                    draft.accent = saved.accent;
+                }
+            }
+            match draft.commit(ctx, &path) {
+                Ok(message) => {
+                    self.accent_save_pending = false;
+                    self.appearance_edit = draft.clone();
+                    self.appearance = draft;
+                    self.options.light = self.appearance.light;
+                    self.options.accent = self.appearance.accent;
+                    crate::theme::apply(ctx, self.options.light, self.options.accent);
+                    self.status = message;
+                }
+                Err(error) => self.status = format!("Appearance could not save: {error}"),
+            }
+        }
+    }
+
+    fn save_pending_accent(&mut self) {
+        if std::mem::take(&mut self.accent_save_pending) {
+            if let Err(error) = self.appearance.save_accent(
+                &self.options.state.with_file_name("appearance.json"),
+                self.appearance_edit.accent,
+            ) {
+                self.status = format!("Accent could not save: {error}");
+            }
         }
     }
 
@@ -969,8 +1171,86 @@ impl App {
 }
 impl Drop for App {
     fn drop(&mut self) {
+        self.save_pending_accent();
         self.scratchpad.flush();
     }
+}
+
+fn background_card(
+    ui: &mut egui::Ui,
+    bar: crate::bar_background::Bar,
+    preset: crate::bar_background::Preset,
+    slot: &crate::bar_background::ImageSlot,
+    settings: &mut crate::bar_background::Settings,
+) -> bool {
+    use crate::bar_background::Bar;
+    let width = ui.available_width();
+    egui::Frame::NONE
+        .fill(ui.visuals().faint_bg_color)
+        .inner_margin(16)
+        .corner_radius(4)
+        .show(ui, |ui| {
+            ui.set_width(width - 32.0);
+            ui.push_id(bar == Bar::Top, |ui| {
+                let label = match bar {
+                    Bar::Top => "Top bar",
+                    Bar::Side => "Left sidebar",
+                };
+                ui.strong(label);
+                slot.preview(ui, bar, preset, settings);
+                let mut choose = false;
+                ui.horizontal_wrapped(|ui| {
+                    choose = crate::widgets::button(
+                        ui,
+                        if settings.has_image(preset) {
+                            "Replace image…"
+                        } else {
+                            "Choose image…"
+                        },
+                    )
+                    .clicked();
+                    if let Some(path) = &settings.path {
+                        ui.add(
+                            egui::Label::new(
+                                path.file_name()
+                                    .unwrap_or(path.as_os_str())
+                                    .to_string_lossy(),
+                            )
+                            .truncate(),
+                        )
+                        .on_hover_text(path.display().to_string());
+                    } else if settings.has_image(preset) {
+                        ui.weak("pixel_tech theme");
+                    } else {
+                        ui.weak("Solid background");
+                    }
+                    if settings.has_image(preset) && crate::widgets::button(ui, "Remove").clicked()
+                    {
+                        settings.remove();
+                    }
+                    if (!settings.use_builtin || settings.path.is_some())
+                        && crate::widgets::button(ui, "Use theme").clicked()
+                    {
+                        *settings = Default::default();
+                    }
+                });
+                if settings.has_image(preset) {
+                    ui.add(
+                        egui::Slider::new(&mut settings.intensity, 0.0..=0.35)
+                            .text("Intensity")
+                            .custom_formatter(|value, _| format!("{:.0}%", value * 100.0)),
+                    );
+                    if let Some(error) = slot.error() {
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                    } else if !slot.ready(preset, settings) {
+                        ui.weak("Loading preview…");
+                    }
+                }
+                choose
+            })
+            .inner
+        })
+        .inner
 }
 
 impl eframe::App for App {
@@ -984,7 +1264,7 @@ impl eframe::App for App {
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.scratchpad.tick(ctx);
-        if self.page != 7 {
+        if self.page != 7 && !self.file_picker.open {
             if let Some(path) = ctx.input(|i| {
                 i.raw
                     .dropped_files
@@ -1024,22 +1304,24 @@ impl eframe::App for App {
             }
             ctx.request_repaint_after(Duration::from_millis(16));
         }
-        if self.bindings.take(ctx, "new_window") {
-            self.new_window();
-        }
-        if self.bindings.take(ctx, "keybindings") {
-            self.page = 6;
-        }
-        if self.bindings.take(ctx, "dashboard") {
-            self.page = 0;
-        }
-        if self.bindings.take(ctx, "terminal_focus") {
-            self.page = 1;
-            self.focus_terminal = true;
-        }
-        if self.page == 1 {
-            if let Some(s) = &mut self.session {
-                self.dock.handle(ctx, s, &self.bindings);
+        if !self.file_picker.open {
+            if self.bindings.take(ctx, "new_window") {
+                self.new_window();
+            }
+            if self.bindings.take(ctx, "keybindings") {
+                self.page = 6;
+            }
+            if self.bindings.take(ctx, "dashboard") {
+                self.page = 0;
+            }
+            if self.bindings.take(ctx, "terminal_focus") {
+                self.page = 1;
+                self.focus_terminal = true;
+            }
+            if self.page == 1 {
+                if let Some(s) = &mut self.session {
+                    self.dock.handle(ctx, s, &self.bindings);
+                }
             }
         }
         self.dock.poll(ctx);
@@ -1076,17 +1358,13 @@ impl eframe::App for App {
                 Err(e) => self.status = format!("UI protocol: {e}"),
             }
         }
+        let preset = self.appearance_edit.preset;
         let top = &self.appearance_edit.top_background;
         let side = &self.appearance_edit.side_background;
-        for error in [
-            self.top_background.update(ctx, top),
-            self.side_background.update(ctx, side),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            self.status = error;
-        }
+        self.top_background
+            .update(ctx, crate::bar_background::Bar::Top, preset, top);
+        self.side_background
+            .update(ctx, crate::bar_background::Bar::Side, preset, side);
         egui::TopBottomPanel::top("navigation")
             .show_separator_line(false)
             .frame(
@@ -1113,6 +1391,7 @@ impl eframe::App for App {
                     ui.painter(),
                     background,
                     header.response.rect.expand2(egui::vec2(20.0, 10.0)),
+                    preset,
                     top,
                 );
             });
@@ -1173,6 +1452,7 @@ impl eframe::App for App {
                         ui.painter(),
                         background,
                         bounds,
+                        preset,
                         &self.appearance_edit.side_background,
                     );
                     self.workspace_navigation(ui, compact);
@@ -1180,144 +1460,92 @@ impl eframe::App for App {
         }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(28, 24)))
-            .show(ctx, |ui| {
-                if self.file_picker.open {
-                    if let Some(path) = self.file_picker.show(ui) {
-                        if self.shell_picker_file {
-                            self.custom_shells.set_executable(&path);
-                        } else {
-                            match self.bar_picker.take() {
-                                Some(crate::bar_background::Bar::Top) => {
-                                    self.appearance_edit.top_background.path = Some(path)
-                                }
-                                Some(crate::bar_background::Bar::Side) => {
-                                    self.appearance_edit.side_background.path = Some(path)
-                                }
-                                None => self.open_editor(path),
-                            }
-                        }
-                    }
-                    if !self.file_picker.open {
-                        self.shell_picker_file = false;
-                        self.bar_picker = None;
-                    }
-                    return;
+            .show(ctx, |ui| match self.page {
+                0 => {
+                    let viewport_height = ui.available_height();
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false, false])
+                        .show(ui, |ui| self.home(ui, viewport_height));
                 }
-                match self.page {
-                    0 => {
-                        let viewport_height = ui.available_height();
-                        egui::ScrollArea::vertical()
-                            .auto_shrink([false, false])
-                            .show(ui, |ui| self.home(ui, viewport_height));
-                    }
-                    1 => {
-                        self.terminal_page(ui);
-                    }
-                    2 => {
-                        egui::ScrollArea::both().show(ui, |ui| self.framework(ui));
-                    }
-                    3 => {
-                        if let Some(args) = self.connections.show(ui, self.launcher.root()) {
-                            if let Err(error) = self.open_connection(args) {
-                                self.status = format!("Connection could not start: {error}");
-                            }
+                1 => {
+                    self.terminal_page(ui);
+                }
+                2 => {
+                    egui::ScrollArea::both().show(ui, |ui| self.framework(ui));
+                }
+                3 => {
+                    if let Some(args) = self.connections.show(ui, self.launcher.root()) {
+                        if let Err(error) = self.open_connection(args) {
+                            self.status = format!("Connection could not start: {error}");
                         }
                     }
-                    7 => match self.launcher.show(ui) {
-                        Some(crate::launcher::Action::Terminal(folder)) => {
-                            self.folder = crate::history::display_path(&folder);
-                            self.open_session();
-                        }
-                        Some(crate::launcher::Action::Editor(path)) => self.open_editor(path),
-                        Some(crate::launcher::Action::Open(path)) => {
-                            if let Err(error) = crate::launcher::open(&path) {
-                                self.status = format!("Could not open item: {error}");
-                            }
-                        }
-                        None => {}
-                    },
-                    8 => self.recent_locations(ui),
-                    4 => {
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            ui.heading("Settings");
-                            ui.horizontal_wrapped(|ui| {
-                                for (tab, name) in
-                                    [(0, "Workspace"), (1, "Appearance"), (2, "Custom shells")]
-                                {
-                                    ui.selectable_value(&mut self.settings_tab, tab, name);
-                                }
-                            });
-                            ui.separator();
-                            match self.settings_tab {
-                                0 => {
-                                    self.launcher.settings(ui);
-                                    return;
-                                }
-                                2 => {
-                                    let path =
-                                        self.options.state.with_file_name("custom-shells.json");
-                                    if self.custom_shells.show(ui, &path) {
-                                        self.shell_picker_file = true;
-                                        self.file_picker
-                                            .start_executable(self.launcher.root().to_path_buf());
-                                    }
-                                    return;
-                                }
-                                _ => {}
-                            }
-                            let mut choose = None;
-                            let save = self.appearance_edit.controls(ui, &mut choose);
-                            if let Some(bar) = choose {
-                                self.bar_picker = Some(bar);
-                                self.file_picker
-                                    .start_image(self.launcher.root().to_path_buf());
-                            }
-                            let accent = self.appearance_edit.accent;
-                            if self.options.accent != accent {
-                                self.options.accent = accent;
-                                crate::theme::apply(ctx, self.options.light, accent);
-                                ctx.request_repaint();
-                            }
-                            if save {
-                                self.appearance = self.appearance_edit.clone();
-                                self.options.light = self.appearance.light;
-                                self.options.accent = self.appearance.accent;
-                                crate::theme::apply(ctx, self.options.light, self.options.accent);
-                                match self.appearance.commit(
-                                    ctx,
-                                    &self.options.state.with_file_name("appearance.json"),
-                                ) {
-                                    Ok(message) => self.status = message,
-                                    Err(e) => {
-                                        self.status = format!("Appearance could not save: {e}")
-                                    }
-                                }
-                            }
-                        });
+                }
+                7 => match self.launcher.show(ui) {
+                    Some(crate::launcher::Action::Terminal(folder)) => {
+                        self.folder = crate::history::display_path(&folder);
+                        self.open_session();
                     }
-                    5 => {
-                        let editor_cwd = if self.active_folder.is_empty() {
-                            self.options.cwd.clone()
-                        } else {
-                            PathBuf::from(&self.active_folder)
-                        };
-                        self.editor.show(
-                            ui,
-                            self.options.light,
-                            self.appearance.terminal_size,
-                            self.appearance.syntax,
-                            &editor_cwd,
-                        );
-                        if !self.editor.has_document() {
-                            self.page = 0;
+                    Some(crate::launcher::Action::Editor(path)) => self.open_editor(path),
+                    Some(crate::launcher::Action::Open(path)) => {
+                        if let Err(error) = crate::launcher::open(&path) {
+                            self.status = format!("Could not open item: {error}");
                         }
                     }
-                    _ => {
-                        self.bindings
-                            .show(ui, &self.options.state.with_file_name("keybindings.json"));
+                    None => {}
+                },
+                8 => self.recent_locations(ui),
+                4 => {
+                    egui::ScrollArea::vertical().show(ui, |ui| self.settings(ui));
+                }
+                5 => {
+                    let editor_cwd = if self.active_folder.is_empty() {
+                        self.options.cwd.clone()
+                    } else {
+                        PathBuf::from(&self.active_folder)
+                    };
+                    self.editor.show(
+                        ui,
+                        self.options.light,
+                        self.appearance.terminal_size,
+                        self.appearance.syntax,
+                        &editor_cwd,
+                    );
+                    if !self.editor.has_document() {
+                        self.page = 0;
                     }
+                }
+                _ => {
+                    self.bindings
+                        .show(ui, &self.options.state.with_file_name("keybindings.json"));
                 }
             });
+        if !ctx.input(|input| input.pointer.primary_down()) {
+            self.save_pending_accent();
+        }
+        if self.file_picker.open {
+            if let Some(path) = self.file_picker.show(ctx) {
+                if self.shell_picker_file {
+                    self.custom_shells.set_executable(&path);
+                } else {
+                    match self.bar_picker {
+                        Some(crate::bar_background::Bar::Top) => {
+                            self.top_background.reload();
+                            self.appearance_edit.top_background.choose(path);
+                        }
+                        Some(crate::bar_background::Bar::Side) => {
+                            self.side_background.reload();
+                            self.appearance_edit.side_background.choose(path);
+                        }
+                        None => self.open_editor(path),
+                    }
+                }
+                ctx.request_repaint();
+            }
+            if !self.file_picker.open {
+                self.shell_picker_file = false;
+                self.bar_picker = None;
+            }
+        }
         if let Some(session) = &mut self.session {
             self.dock.windows(
                 ctx,

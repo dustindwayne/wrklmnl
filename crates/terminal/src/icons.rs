@@ -5,6 +5,7 @@ pub enum Icon {
     Back,
     Forward,
     Up,
+    Down,
     Refresh,
     History,
     Serial,
@@ -111,10 +112,11 @@ pub fn paint(p: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
         p.line_segment([point(a.0, a.1), point(b.0, b.1)], stroke);
     };
     match icon {
-        Icon::Back | Icon::Forward | Icon::Up => {
+        Icon::Back | Icon::Forward | Icon::Up | Icon::Down => {
             let transform = |(x, y)| match icon {
                 Icon::Forward => (24.0 - x, y),
                 Icon::Up => (y, x),
+                Icon::Down => (y, 24.0 - x),
                 _ => (x, y),
             };
             for (a, b) in [

@@ -2,7 +2,7 @@ use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, TextStyl
 use serde::{Deserialize, Serialize};
 use std::{path::Path, sync::Arc};
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Appearance {
     pub ui_size: f32,
@@ -12,6 +12,7 @@ pub struct Appearance {
     pub syntax: bool,
     pub light: bool,
     pub accent: [u8; 3],
+    pub preset: crate::bar_background::Preset,
     pub top_background: crate::bar_background::Settings,
     pub side_background: crate::bar_background::Settings,
 }
@@ -25,6 +26,7 @@ impl Default for Appearance {
             syntax: true,
             light: false,
             accent: [182, 182, 178],
+            preset: Default::default(),
             top_background: Default::default(),
             side_background: Default::default(),
         }
@@ -214,36 +216,24 @@ impl Appearance {
         }
         crate::persistence::atomic_write(path, &serde_json::to_vec_pretty(self)?)
     }
-    pub fn commit(&self, ctx: &egui::Context, path: &Path) -> anyhow::Result<String> {
-        self.validate()?;
-        let warning = self.apply(ctx).err();
-        self.save(path)?;
-        Ok(warning
-            .map(|e| format!("Appearance saved / {e}"))
-            .unwrap_or_else(|| "Theme, accent, fonts, sizes and syntax preference saved".into()))
+    pub fn save_accent(&mut self, path: &Path, accent: [u8; 3]) -> anyhow::Result<()> {
+        let mut saved = Self::load(path).unwrap_or_else(|_| self.clone());
+        saved.accent = accent;
+        saved.save(path)?;
+        self.accent = accent;
+        Ok(())
     }
 
-    pub fn controls(
-        &mut self,
-        ui: &mut egui::Ui,
-        choose: &mut Option<crate::bar_background::Bar>,
-    ) -> bool {
-        ui.set_max_width(980.0);
-        let mut apply = false;
-        ui.horizontal(|ui| {
-            ui.heading("Appearance");
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                apply = crate::widgets::add(
-                    ui,
-                    egui::Button::new(
-                        egui::RichText::new("Apply changes").color(ui.visuals().hyperlink_color),
-                    )
-                    .frame(false)
-                    .fill(ui.visuals().selection.bg_fill),
-                )
-                .clicked();
-            });
-        });
+    pub fn commit(&self, ctx: &egui::Context, path: &Path) -> anyhow::Result<String> {
+        self.validate()?;
+        self.save(path)?;
+        let warning = self.apply(ctx).err();
+        Ok(warning
+            .map(|e| format!("Appearance saved / {e}"))
+            .unwrap_or_else(|| "Appearance saved".into()))
+    }
+
+    pub fn controls(&mut self, ui: &mut egui::Ui) {
         ui.label(
             egui::RichText::new("Make the workspace comfortable to read.")
                 .color(ui.visuals().weak_text_color()),
@@ -252,29 +242,16 @@ impl Appearance {
         let id = ui.id().with("appearance_section");
         let mut section = ui.ctx().data_mut(|d| d.get_temp::<u8>(id).unwrap_or(0));
         ui.horizontal_wrapped(|ui| {
-            for (i, label) in [
-                (0, "Theme & color"),
-                (1, "Typography"),
-                (2, "Terminal"),
-                (3, "Backgrounds"),
-            ] {
-                ui.selectable_value(&mut section, i, label);
+            for (i, label) in [(0, "Theme & color"), (1, "Typography"), (2, "Terminal")] {
+                if crate::widgets::text_tab(ui, label, section == i).clicked() {
+                    section = i;
+                }
             }
         });
         ui.ctx().data_mut(|d| d.insert_temp(id, section));
         ui.add_space(28.0);
         let wide = ui.available_width() > 720.0;
-        if section == 3 {
-            ui.label("Images are cropped to fit each bar. Low intensity keeps controls readable.");
-            ui.add_space(8.0);
-            if background_controls(ui, "Top bar", &mut self.top_background) {
-                *choose = Some(crate::bar_background::Bar::Top);
-            }
-            ui.add_space(18.0);
-            if background_controls(ui, "Left sidebar", &mut self.side_background) {
-                *choose = Some(crate::bar_background::Bar::Side);
-            }
-        } else if wide {
+        if wide {
             ui.columns(2, |columns| {
                 self.settings_section(&mut columns[0], section);
                 columns[1].add_space(4.0);
@@ -286,25 +263,28 @@ impl Appearance {
             self.preview(ui);
         }
         ui.add_space(32.0);
-        ui.horizontal(|ui| {
-            ui.label(
-                egui::RichText::new(
-                    "Accent and backgrounds preview immediately. Apply changes to save.",
-                )
-                .small()
-                .color(ui.visuals().weak_text_color()),
-            );
-            if crate::widgets::button(ui, "Reset defaults").clicked() {
-                *self = Self::default();
-            }
-        });
-        apply
+        if crate::widgets::button(ui, "Reset appearance defaults").clicked() {
+            *self = Self {
+                top_background: self.top_background.clone(),
+                side_background: self.side_background.clone(),
+                ..Self::default()
+            };
+        }
     }
     fn settings_section(&mut self, ui: &mut egui::Ui, section: u8) {
         match section {
             0 => {
+                use crate::bar_background::Preset;
                 ui.label(egui::RichText::new("Theme").strong());
-                ui.add_space(8.0);
+                crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("workspace_theme"))
+                    .selected_text(self.preset.label())
+                    .show_ui(ui, |ui| {
+                        for preset in [Preset::Basic, Preset::PixelTech] {
+                            ui.selectable_value(&mut self.preset, preset, preset.label());
+                        }
+                    });
+                ui.add_space(12.0);
+                ui.label(egui::RichText::new("Color mode").strong());
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.light, false, "Dark");
                     ui.selectable_value(&mut self.light, true, "Light");
@@ -312,35 +292,14 @@ impl Appearance {
                 ui.add_space(28.0);
                 ui.label(egui::RichText::new("Accent color").strong());
                 ui.label(
-                    egui::RichText::new("Selection, focus, and primary actions.")
-                        .small()
-                        .color(ui.visuals().weak_text_color()),
+                    egui::RichText::new(
+                        "Selection, focus, and primary actions. Accent changes save automatically.",
+                    )
+                    .small()
+                    .color(ui.visuals().weak_text_color()),
                 );
                 ui.add_space(12.0);
-                ui.horizontal_wrapped(|ui| {
-                    for (color, label) in [
-                        ([154, 154, 154], "Slate"),
-                        ([182, 182, 178], "Silver"),
-                        ([219, 219, 216], "Pearl"),
-                    ] {
-                        let (rect, r) =
-                            ui.allocate_exact_size(egui::vec2(36.0, 36.0), egui::Sense::click());
-                        ui.painter().circle_filled(
-                            rect.center(),
-                            if self.accent == color { 11.0 } else { 8.0 },
-                            egui::Color32::from_rgb(color[0], color[1], color[2]),
-                        );
-                        r.widget_info(|| {
-                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
-                        });
-                        if r.on_hover_text(label).clicked() {
-                            self.accent = color;
-                        }
-                    }
-                });
-                ui.add_space(12.0);
                 ui.horizontal(|ui| {
-                    ui.label("Custom");
                     ui.color_edit_button_srgb(&mut self.accent);
                     ui.label(
                         egui::RichText::new(format!(
@@ -467,48 +426,9 @@ impl Appearance {
                     self.light,
                     self.terminal_size,
                 ));
-                ui.add_space(20.0);
-                ui.label(
-                    egui::RichText::new("Selected action")
-                        .size(self.ui_size)
-                        .color(crate::theme::accent(self.light, self.accent)),
-                );
             });
     }
 }
-fn background_controls(
-    ui: &mut egui::Ui,
-    label: &str,
-    settings: &mut crate::bar_background::Settings,
-) -> bool {
-    ui.heading(label);
-    let mut choose = false;
-    ui.horizontal_wrapped(|ui| {
-        choose = crate::widgets::button(ui, "Choose image…").clicked();
-        if let Some(path) = settings.path.as_ref() {
-            ui.label(
-                path.file_name()
-                    .unwrap_or(path.as_os_str())
-                    .to_string_lossy(),
-            )
-            .on_hover_text(path.display().to_string());
-            if crate::widgets::button(ui, "Remove image").clicked() {
-                settings.path = None;
-            }
-        } else {
-            ui.weak("Solid background");
-        }
-    });
-    if settings.path.is_some() {
-        ui.add(
-            egui::Slider::new(&mut settings.intensity, 0.0..=0.35)
-                .text("Image intensity")
-                .custom_formatter(|value, _| format!("{:.0}%", value * 100.0)),
-        );
-    }
-    choose
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,6 +471,34 @@ mod review_tests {
 #[cfg(test)]
 mod persistence_review_tests {
     use super::*;
+    #[test]
+    fn accent_survives_relaunch_without_applying_other_changes() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("appearance.json");
+        let mut open_window = Appearance::default();
+        Appearance {
+            ui_size: 22.0,
+            ..Appearance::default()
+        }
+        .save(&path)?;
+
+        let accent = [195, 151, 119];
+        open_window.save_accent(&path, accent)?;
+        let reopened = Appearance::load(&path)?;
+        assert_eq!(reopened.accent, accent);
+        assert_eq!(reopened.ui_size, 22.0);
+        assert_eq!(open_window.accent, accent);
+        assert_eq!(open_window.ui_size, Appearance::default().ui_size);
+
+        let ctx = egui::Context::default();
+        crate::theme::apply(&ctx, reopened.light, reopened.accent);
+        assert_eq!(
+            ctx.style().visuals.selection.stroke.color,
+            crate::theme::accent(reopened.light, accent)
+        );
+        Ok(())
+    }
+
     #[test]
     fn saves_bare_filename_and_preserves_invalid_json() {
         let file = format!("appearance-review-test-{}.json", std::process::id());

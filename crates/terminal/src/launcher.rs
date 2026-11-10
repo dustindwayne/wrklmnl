@@ -88,6 +88,9 @@ impl Workspace {
     #[cfg(feature = "capture")]
     pub fn capture_select(&mut self, path: PathBuf, ctx: &egui::Context) {
         self.browse(self.root.clone());
+        if std::env::var_os("DTERM_CAPTURE_FILE_PROPERTIES").is_some() {
+            self.properties = Some(Properties::new(path.clone()));
+        }
         self.select_preview(path, ctx, false);
     }
 
@@ -464,7 +467,10 @@ impl Workspace {
             } else {
                 egui::Color32::from_gray(242)
             };
-            let frame = egui::Frame::NONE.fill(tint).inner_margin(16);
+            let frame = egui::Frame::NONE
+                .fill(tint)
+                .inner_margin(16)
+                .corner_radius(4);
             if expanded {
                 frame.show(ui, |ui| {
                     preview_action = preview.show(ui);
@@ -658,7 +664,7 @@ impl Workspace {
                 .filter_map(|file| file.path.clone())
                 .collect::<Vec<_>>()
         });
-        if !files.is_empty() {
+        if !files.is_empty() && self.properties.is_none() {
             if self.import.is_some() {
                 self.error = "Wait for the current file copy to finish".into();
             } else {
@@ -691,7 +697,7 @@ impl Workspace {
             }
         }
         if let Some((path, properties, expanded)) = inspect {
-            if properties {
+            if properties && self.can_leave_preview() {
                 self.properties = Some(Properties::new(path.clone()));
             }
             self.select_preview(path, ui.ctx(), expanded);
@@ -704,12 +710,37 @@ impl Workspace {
             self.properties = None;
         }
         if let Some(properties) = self.properties.as_mut() {
-            let (open, changed, launch) = properties.show(ui.ctx());
+            let previous = properties.path().to_path_buf();
+            let (open, changed, launch) = properties.show(ui.ctx(), previous != self.root);
+            let renamed = (previous != properties.path()).then(|| properties.path().to_path_buf());
             if !open {
                 self.properties = None;
             }
             if changed {
-                self.browse(self.folder.clone());
+                let selected = self.selected.clone();
+                let folder = renamed
+                    .as_ref()
+                    .and_then(|path| {
+                        self.folder.strip_prefix(&previous).ok().map(|suffix| {
+                            if suffix.as_os_str().is_empty() {
+                                path.clone()
+                            } else {
+                                path.join(suffix)
+                            }
+                        })
+                    })
+                    .unwrap_or_else(|| self.folder.clone());
+                self.browse(folder);
+                self.selected = if selected.as_deref() == Some(previous.as_path()) {
+                    renamed.clone().or(selected)
+                } else {
+                    selected
+                };
+            }
+            if let Some(path) = renamed {
+                if let Some(preview) = &mut self.preview {
+                    preview.renamed(&previous, &path, ui.ctx());
+                }
             }
             if let Some(path) = launch {
                 self.properties = None;

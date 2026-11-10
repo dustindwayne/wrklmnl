@@ -84,6 +84,28 @@ impl Preview {
         self.edit_status.clear();
     }
 
+    pub fn renamed(&mut self, from: &Path, to: &Path, ctx: &egui::Context) {
+        if let Ok(suffix) = self.path.strip_prefix(from) {
+            let path = if suffix.as_os_str().is_empty() {
+                to.to_path_buf()
+            } else {
+                to.join(suffix)
+            };
+            self.change(path, ctx);
+        } else if from.parent() == Some(self.path.as_path()) {
+            self.change(self.path.clone(), ctx);
+        }
+        for entry in &mut self.trail {
+            if let Ok(suffix) = entry.strip_prefix(from) {
+                *entry = if suffix.as_os_str().is_empty() {
+                    to.to_path_buf()
+                } else {
+                    to.join(suffix)
+                };
+            }
+        }
+    }
+
     pub fn show(&mut self, ui: &mut egui::Ui) -> Option<Action> {
         use crate::icons::{button, Icon};
         if self.loaded.is_none() {
@@ -131,10 +153,16 @@ impl Preview {
                 {
                     self.expanded = !self.expanded;
                 }
+                if self.draft.is_none() && button(ui, Icon::Settings, "Properties").clicked() {
+                    action = Some(Action::Properties(self.path.clone()));
+                }
             });
         });
-        let title = self.path.file_name().unwrap_or_default().to_string_lossy();
-        ui.heading(title.as_ref());
+        let title = self
+            .path
+            .file_name()
+            .unwrap_or(self.path.as_os_str())
+            .to_string_lossy();
         let directory = matches!(
             &self.loaded,
             Some(Ok(Loaded {
@@ -142,6 +170,24 @@ impl Preview {
                 ..
             }))
         );
+        let (icon, _) = crate::launcher::file_kind(&self.path, directory);
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(24.0), egui::Sense::hover());
+            crate::tiles::paint_icon(ui.painter(), icon, rect.min, 1.0, ui.visuals().text_color());
+            ui.add(egui::Label::new(egui::RichText::new(title).heading()).truncate())
+                .on_hover_text(self.path.display().to_string());
+        });
+        if let Some(Ok(Loaded {
+            content: Content::Folder(items, more),
+            ..
+        })) = &self.loaded
+        {
+            ui.weak(match (items.len(), more) {
+                (1, false) => "1 item".into(),
+                (count, true) => format!("{count}+ items"),
+                (count, false) => format!("{count} items"),
+            });
+        }
         if let Some(Ok(Loaded {
             size: Some(size), ..
         })) = &self.loaded
@@ -173,22 +219,6 @@ impl Preview {
             ui.label(&self.edit_status);
         }
         ui.horizontal_wrapped(|ui| {
-            if crate::widgets::button(
-                ui,
-                if directory {
-                    "Enter folder"
-                } else {
-                    "Open with default app"
-                },
-            )
-            .clicked()
-            {
-                action = Some(if directory {
-                    Action::Browse(self.path.clone())
-                } else {
-                    Action::Open(self.path.clone())
-                });
-            }
             if can_inline_edit && crate::widgets::button(ui, "Edit here").clicked() {
                 match crate::preview_edit::Draft::load(&self.path) {
                     Ok(draft) => {
@@ -201,13 +231,33 @@ impl Preview {
             if can_open_editor && crate::widgets::button(ui, "Open in editor").clicked() {
                 action = Some(Action::Editor(self.path.clone()));
             }
-            if crate::widgets::button(ui, "Properties").clicked() {
-                action = Some(Action::Properties(self.path.clone()));
+            if crate::widgets::button(
+                ui,
+                if directory {
+                    "Open folder"
+                } else {
+                    "Open externally"
+                },
+            )
+            .clicked()
+            {
+                action = Some(if directory {
+                    Action::Browse(self.path.clone())
+                } else {
+                    Action::Open(self.path.clone())
+                });
             }
         });
         ui.separator();
         let mut next = None;
-        egui::ScrollArea::both()
+        let scroll_wide = matches!(
+            &self.loaded,
+            Some(Ok(Loaded {
+                content: Content::Table(..) | Content::Binary(..) | Content::Json(..),
+                ..
+            }))
+        ) || self.larger_image;
+        egui::ScrollArea::new([scroll_wide, true])
             .auto_shrink([false, false])
             .id_salt(&self.path)
             .show(ui, |ui| match self.loaded.as_ref() {
@@ -219,40 +269,28 @@ impl Preview {
                 }
                 Some(Ok(loaded)) => match &loaded.content {
                     Content::Folder(items, more) => {
-                        ui.weak(format!(
-                            "{}{} items",
-                            items.len(),
-                            if *more { "+" } else { "" }
-                        ));
+                        ui.spacing_mut().item_spacing.y = 3.0;
                         if items.is_empty() {
-                            ui.label("This folder is empty");
+                            ui.weak("This folder is empty.");
                         }
                         for item in items {
-                            let name = item.path.file_name().unwrap_or_default().to_string_lossy();
-                            let (icon, kind) =
-                                crate::launcher::file_kind(&item.path, item.directory);
-                            ui.horizontal(|ui| {
-                                let size = egui::vec2(20.0, 20.0);
-                                let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                                crate::tiles::paint_icon(
-                                    ui.painter(),
-                                    icon,
-                                    rect.min,
-                                    0.85,
-                                    ui.visuals().text_color(),
-                                );
-                                let response =
-                                    crate::widgets::button(ui, name.as_ref()).on_hover_text(kind);
-                                if response.clicked() {
-                                    next = Some(item.path.clone());
+                            let response = folder_row(ui, item);
+                            if response.clicked() {
+                                next = Some(item.path.clone());
+                            }
+                            response.context_menu(|ui| {
+                                if item.directory && ui.button("Open folder").clicked() {
+                                    action = Some(Action::Browse(item.path.clone()));
+                                    ui.close_menu();
                                 }
-                                if item.directory {
-                                    ui.weak("›");
+                                if ui.button("Properties").clicked() {
+                                    action = Some(Action::Properties(item.path.clone()));
+                                    ui.close_menu();
                                 }
                             });
                         }
                         if *more {
-                            ui.weak("Enter the folder to see the rest.");
+                            ui.weak("Open the folder to see the rest.");
                         }
                     }
                     Content::Text(text, more) => {
@@ -375,6 +413,53 @@ impl Preview {
                 );
             });
     }
+}
+
+fn folder_row(ui: &mut egui::Ui, item: &FolderItem) -> egui::Response {
+    let name = item.path.file_name().unwrap_or_default().to_string_lossy();
+    let (icon, kind) = crate::launcher::file_kind(&item.path, item.directory);
+    let (rect, response) =
+        ui.allocate_exact_size(egui::vec2(ui.available_width(), 32.0), egui::Sense::click());
+    response.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, ui.is_enabled(), name.as_ref())
+    });
+    let amount = crate::widgets::hover(ui, response.id, response.hovered() || response.has_focus());
+    let color = if response.has_focus() {
+        ui.visuals().hyperlink_color
+    } else {
+        ui.visuals().text_color()
+    };
+    ui.painter().rect_filled(
+        rect,
+        4,
+        ui.visuals().selection.bg_fill.gamma_multiply(amount),
+    );
+    crate::tiles::paint_icon(
+        ui.painter(),
+        icon,
+        egui::pos2(rect.left() + 8.0, rect.center().y - 9.0),
+        0.85,
+        color,
+    );
+    let mut label = rect;
+    label.min.x += 34.0;
+    label.max.x = (label.max.x - 25.0).max(label.min.x);
+    ui.scope_builder(
+        egui::UiBuilder::new()
+            .max_rect(label)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        |ui| ui.add(egui::Label::new(name.as_ref()).truncate().selectable(false)),
+    );
+    if item.directory {
+        ui.painter().text(
+            egui::pos2(rect.right() - 9.0, rect.center().y),
+            egui::Align2::RIGHT_CENTER,
+            "›",
+            egui::TextStyle::Body.resolve(ui.style()),
+            ui.visuals().weak_text_color(),
+        );
+    }
+    response.on_hover_text(format!("{kind} · {name}"))
 }
 
 fn text_preview(path: &Path, text: &str, more: bool) -> Content {
@@ -527,6 +612,28 @@ fn read(path: &Path) -> anyhow::Result<Loaded> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn renaming_a_folder_keeps_the_preview_and_back_path_current() -> anyhow::Result<()> {
+        let root = tempfile::tempdir()?;
+        let previous = root.path().join("old");
+        let renamed = root.path().join("new");
+        fs::create_dir(&previous)?;
+        fs::write(previous.join("notes.txt"), "notes")?;
+        let ctx = egui::Context::default();
+        let mut preview = Preview::new(previous.join("notes.txt"), &ctx, false);
+        preview.trail.push(previous.clone());
+
+        fs::rename(&previous, &renamed)?;
+        preview.renamed(&previous, &renamed, &ctx);
+        assert_eq!(preview.path, renamed.join("notes.txt"));
+        assert_eq!(preview.trail, [renamed]);
+        assert!(matches!(
+            preview.pending.recv_timeout(std::time::Duration::from_secs(2))??.content,
+            Content::Text(text, false) if text == "notes"
+        ));
+        Ok(())
+    }
 
     #[test]
     fn nested_json_routes_to_the_structure_viewer() {

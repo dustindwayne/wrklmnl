@@ -41,121 +41,143 @@ impl Properties {
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) -> (bool, bool, Option<PathBuf>) {
-        let mut open = true;
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+
+    pub fn show(&mut self, ctx: &egui::Context, can_rename: bool) -> (bool, bool, Option<PathBuf>) {
+        let mut done = false;
         let mut changed = false;
         let mut launch = None;
-        egui::Window::new("File properties")
-            .open(&mut open)
-            .default_width(420.0)
-            .default_pos(ctx.screen_rect().right_bottom() - egui::vec2(450.0, 330.0))
+        let modal = egui::Modal::new(egui::Id::new("file_properties"))
+            .frame(egui::Frame::popup(&ctx.style()).inner_margin(20).corner_radius(4))
             .show(ctx, |ui| {
-                ui.heading(
-                    self.path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .as_ref(),
-                );
-                ui.horizontal_wrapped(|ui| {
-                    if crate::widgets::button(ui, "Open").clicked() {
-                        launch = Some(self.path.clone());
-                    }
-                    if crate::widgets::button(ui, "Copy path").clicked() {
-                        ui.ctx().copy_text(self.path.display().to_string());
-                    }
-                });
-                ui.add(
-                    egui::Label::new(self.path.display().to_string())
-                        .wrap()
-                        .selectable(true),
-                );
-                ui.horizontal(|ui| {
-                    for (section, label) in [(0, "General"), (1, "Timestamps"), (2, "Permissions")]
-                    {
-                        ui.selectable_value(&mut self.section, section, label);
-                    }
-                });
-                ui.separator();
+                ui.set_width((ctx.screen_rect().width() - 72.0).clamp(300.0, 540.0));
+                ui.heading("Properties");
                 let metadata = match fs::symlink_metadata(&self.path) {
                     Ok(metadata) => metadata,
                     Err(error) => {
-                        ui.label(error.to_string());
+                        ui.colored_label(ui.visuals().error_fg_color, format!("Could not read properties: {error}"));
+                        done = crate::widgets::button(ui, "Done").clicked();
                         return;
                     }
                 };
                 let link = metadata.is_symlink() || is_reparse_point(&metadata);
-                match self.section {
-                    0 => {
-                        let (_, kind) = crate::launcher::file_kind(&self.path, metadata.is_dir());
-                        ui.label(if link { "Link" } else { kind });
-                        if metadata.is_file() {
-                            ui.label(format!("Size · {} bytes", metadata.len()));
+                let (icon, kind) = crate::launcher::file_kind(&self.path, metadata.is_dir());
+                ui.horizontal(|ui| {
+                    let (rect, _) = ui.allocate_exact_size(egui::Vec2::splat(24.0), egui::Sense::hover());
+                    crate::tiles::paint_icon(ui.painter(), icon, rect.min, 1.0, ui.visuals().text_color());
+                    ui.add(egui::Label::new(egui::RichText::new(
+                        self.path.file_name().unwrap_or(self.path.as_os_str()).to_string_lossy(),
+                    ).strong()).truncate())
+                        .on_hover_text(self.path.display().to_string());
+                });
+                ui.weak(if metadata.is_file() {
+                    format!("{kind} · {} bytes", metadata.len())
+                } else if link {
+                    "Link".into()
+                } else {
+                    kind.into()
+                });
+                ui.separator();
+                ui.horizontal_wrapped(|ui| {
+                    for (section, label) in [(0, "General"), (1, "Timestamps"), (2, "Permissions")] {
+                        if crate::widgets::text_tab(ui, label, self.section == section).clicked() {
+                            self.section = section;
+                            self.error.clear();
                         }
-                        ui.horizontal(|ui| {
-                            ui.label("Name");
-                            let edit = ui.text_edit_singleline(&mut self.name);
-                            let enter =
-                                edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                            if ui.button("Rename").clicked() || enter {
-                                let result = validate_name(&self.name).and_then(|()| {
-                                    let destination = self.path.with_file_name(&self.name);
-                                    if destination != self.path {
-                                        move_no_replace(&self.path, &destination)?;
-                                        self.path = destination;
+                    }
+                });
+                ui.separator();
+
+                egui::ScrollArea::vertical()
+                    .id_salt("properties_body")
+                    .min_scrolled_height(160.0)
+                    .max_height((ctx.screen_rect().height() * 0.42).clamp(160.0, 315.0))
+                    .auto_shrink([false, true])
+                    .show(ui, |ui| {
+                        match self.section {
+                            0 => {
+                                ui.strong("Location");
+                                ui.add(egui::Label::new(self.path.display().to_string()).wrap().selectable(true));
+                                if crate::widgets::button(ui, "Copy path").clicked() {
+                                    ctx.copy_text(self.path.display().to_string());
+                                }
+                                if !can_rename {
+                                    ui.weak("The workspace root can be changed in Settings.");
+                                    return;
+                                }
+                                ui.add_space(8.0);
+                                ui.strong("Name");
+                                ui.horizontal(|ui| {
+                                    let edit = property_field(ui, &mut self.name, (ui.available_width() - 108.0).max(100.0));
+                                    let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                    let different = self.path.file_name().is_some_and(|name| name != self.name.as_str());
+                                    if ui.add_enabled(different, egui::Button::new("Rename")).clicked() || (different && enter) {
+                                        let result = validate_name(&self.name).and_then(|()| {
+                                            let destination = self.path.with_file_name(&self.name);
+                                            move_no_replace(&self.path, &destination)?;
+                                            self.path = destination;
+                                            Ok(())
+                                        });
+                                        changed |= self.report(result);
                                     }
-                                    Ok(())
                                 });
-                                changed |= self.report(result);
                             }
-                        });
+                            1 => {
+                                if let Ok(time) = metadata.created() {
+                                    ui.strong("Created");
+                                    ui.label(format!("{} UTC", timestamp(time)));
+                                }
+                                if link || !metadata.is_file() {
+                                    for (label, value) in [("Modified", metadata.modified()), ("Accessed", metadata.accessed())] {
+                                        if let Ok(time) = value {
+                                            ui.strong(label);
+                                            ui.label(format!("{} UTC", timestamp(time)));
+                                        }
+                                    }
+                                } else {
+                                    ui.weak("UTC · YYYY-MM-DD HH:MM:SS. Leave a field blank to skip it.");
+                                    ui.strong("Modified");
+                                    property_field(ui, &mut self.modified, ui.available_width());
+                                    ui.strong("Accessed");
+                                    property_field(ui, &mut self.accessed, ui.available_width());
+                                    if crate::widgets::button(ui, "Apply timestamps").clicked() {
+                                        let result = apply_times(&self.path, &self.modified, &self.accessed);
+                                        changed |= self.report(result);
+                                    }
+                                }
+                            }
+                            _ => {
+                                if link {
+                                    ui.weak("Permission edits are available on the target file.");
+                                } else {
+                                    ui.weak("Permission changes take effect immediately.");
+                                    changed |= self.permissions(ui, &metadata);
+                                }
+                                #[cfg(windows)]
+                                if crate::widgets::button(ui, "Windows properties and security").clicked() {
+                                    let result = windows_properties(&self.path);
+                                    self.report(result);
+                                }
+                            }
+                        }
+                        if !self.error.is_empty() {
+                            ui.colored_label(ui.visuals().error_fg_color, &self.error);
+                        }
+                    });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let label = if metadata.is_dir() { "Open folder" } else { "Open externally" };
+                    if crate::widgets::button(ui, label).clicked() {
+                        launch = Some(self.path.clone());
                     }
-                    1 => {
-                        if let Ok(time) = metadata.created() {
-                            ui.label(format!("Created · {} UTC", timestamp(time)));
-                        }
-                        if link || !metadata.is_file() {
-                            if let Ok(time) = metadata.modified() {
-                                ui.label(format!("Modified · {} UTC", timestamp(time)));
-                            }
-                            if let Ok(time) = metadata.accessed() {
-                                ui.label(format!("Accessed · {} UTC", timestamp(time)));
-                            }
-                        } else {
-                            ui.weak("UTC · YYYY-MM-DD HH:MM:SS. Leave a field blank to skip it.");
-                            egui::Grid::new("file_times").show(ui, |ui| {
-                                ui.label("Modified");
-                                ui.text_edit_singleline(&mut self.modified);
-                                ui.end_row();
-                                ui.label("Accessed");
-                                ui.text_edit_singleline(&mut self.accessed);
-                                ui.end_row();
-                            });
-                            if ui.button("Apply timestamps").clicked() {
-                                let result =
-                                    apply_times(&self.path, &self.modified, &self.accessed);
-                                changed |= self.report(result);
-                            }
-                        }
-                    }
-                    _ => {
-                        if !link {
-                            changed |= self.permissions(ui, &metadata);
-                        } else {
-                            ui.weak("Permission edits are available on the target file.");
-                        }
-                        #[cfg(windows)]
-                        if ui.button("Windows properties and security").clicked() {
-                            let result = windows_properties(&self.path);
-                            self.report(result);
-                        }
-                    }
-                }
-                if !self.error.is_empty() {
-                    ui.colored_label(ui.visuals().error_fg_color, &self.error);
-                }
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        done = ui.add(egui::Button::new("Done").fill(ui.visuals().selection.bg_fill)).clicked();
+                    });
+                });
             });
-        (open, changed, launch)
+        (!done && !modal.should_close(), changed, launch)
     }
 
     fn report(&mut self, result: anyhow::Result<()>) -> bool {
@@ -210,6 +232,14 @@ impl Properties {
         }
         self.report(fs::set_permissions(&self.path, permissions).map_err(Into::into))
     }
+}
+
+fn property_field(ui: &mut egui::Ui, value: &mut String, width: f32) -> egui::Response {
+    ui.add(
+        egui::TextEdit::singleline(value)
+            .desired_width(width)
+            .margin(egui::Margin::symmetric(10, 7)),
+    )
 }
 
 fn apply_times(path: &Path, modified: &str, accessed: &str) -> anyhow::Result<()> {

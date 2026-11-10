@@ -40,6 +40,7 @@ mod theme;
 mod tiles;
 mod ui_runtime;
 mod widgets;
+mod workspace_layout;
 mod workspace_ui;
 use std::{
     collections::BTreeMap,

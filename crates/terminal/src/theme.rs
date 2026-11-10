@@ -1,10 +1,6 @@
 use eframe::egui::{self, Color32, Stroke, Vec2};
 pub fn accent(light: bool, raw: [u8; 3]) -> Color32 {
-    let mut rgb = if raw == [255, 0, 119] {
-        [182, 182, 178]
-    } else {
-        raw
-    };
+    let mut rgb = raw;
     let luminance = |rgb: [u8; 3]| {
         let linear = |v: u8| {
             let f = v as f64 / 255.0;
@@ -72,13 +68,6 @@ pub fn apply(ctx: &egui::Context, light: bool, accent: [u8; 3]) {
         } else {
             Color32::from_rgb(245, 245, 245)
         });
-        style.visuals.hyperlink_color = self::accent(light, accent);
-        let base = if light { 250.0 } else { 17.0 };
-        let color = style.visuals.hyperlink_color;
-        let blend = |v: u8| (base * 0.78 + v as f32 * 0.22) as u8;
-        style.visuals.selection.bg_fill =
-            Color32::from_rgb(blend(color.r()), blend(color.g()), blend(color.b()));
-        style.visuals.selection.stroke = Stroke::new(1.0_f32, color);
         for widget in [
             &mut style.visuals.widgets.noninteractive,
             &mut style.visuals.widgets.inactive,
@@ -98,11 +87,26 @@ pub fn apply(ctx: &egui::Context, light: bool, accent: [u8; 3]) {
             style.visuals.widgets.noninteractive.fg_stroke.color;
         style.visuals.widgets.hovered.fg_stroke.color =
             style.visuals.widgets.inactive.fg_stroke.color;
-        style.visuals.widgets.active.fg_stroke.color = color;
-        style.visuals.widgets.active.weak_bg_fill = style.visuals.selection.bg_fill;
-        style.visuals.widgets.open.fg_stroke.color = color;
-        style.visuals.widgets.open.weak_bg_fill = style.visuals.selection.bg_fill;
+        set_accent(&mut style.visuals, light, accent);
     });
+}
+
+pub fn apply_accent(ctx: &egui::Context, light: bool, accent: [u8; 3]) {
+    ctx.style_mut(|style| set_accent(&mut style.visuals, light, accent));
+}
+
+fn set_accent(visuals: &mut egui::Visuals, light: bool, accent: [u8; 3]) {
+    visuals.hyperlink_color = self::accent(light, accent);
+    let base = if light { 250.0 } else { 17.0 };
+    let color = visuals.hyperlink_color;
+    let blend = |v: u8| (base * 0.78 + v as f32 * 0.22) as u8;
+    visuals.selection.bg_fill =
+        Color32::from_rgb(blend(color.r()), blend(color.g()), blend(color.b()));
+    visuals.selection.stroke = Stroke::new(1.0_f32, color);
+    visuals.widgets.active.fg_stroke.color = color;
+    visuals.widgets.active.weak_bg_fill = visuals.selection.bg_fill;
+    visuals.widgets.open.fg_stroke.color = color;
+    visuals.widgets.open.weak_bg_fill = visuals.selection.bg_fill;
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use terminal_ui_language::Document;
 pub const DASHBOARD: &str = include_str!("../../../ui/dashboard.txt");
 pub const PICKER: &str = include_str!("../../../ui/terminal-picker.txt");
 pub const LAUNCHER: &str = include_str!("../../../ui/shell-launcher.txt");
+#[cfg(test)]
 pub const NAVIGATION: &str = include_str!("../../../ui/navigation.txt");
 
 #[derive(Default)]

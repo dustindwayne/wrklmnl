@@ -1,0 +1,12 @@
+col:8[
+  t:"Workspace"
+  > item[ico:home > Dashboard@page_0]
+  > item[ico:terminal > Terminals@page_1]
+  > item[ico:grid > Connections@page_3]
+  > item[ico:folder > Files@page_7]
+  > item[ico:history > Recent@page_8]
+  > content[] #EDITOR
+  > gap:16
+  > item[ico:settings > Settings@page_4]
+  > item[ico:keys > Shortcuts@page_6]
+]

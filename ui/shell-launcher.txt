@@ -1,0 +1,10 @@
+col:12[
+  in:folder="":"Working folder"
+  > nav:12[t:"Available shells" <> Refresh@refresh_shells]
+  > t:$shell_status
+  > grid:12[
+    #SHELLS
+  ]
+  > content[] #CUSTOM
+  > "Manage custom shells"@manage_shells
+]

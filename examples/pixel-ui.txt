@@ -1,0 +1,15 @@
+# One definition: responsive pixel drawing and interactive native components.
+g:180[
+  charcoal[r 0,0 *,*]
+  white[
+    t 16,16 24 "Graphics over CLI"
+    t 16,54 "One source. Desktop or a small display."
+    i -32,20 close
+  ]
+  r 16,100 70%,8 blue/75
+  r 16,100 35%,8 white/20
+  t 16,128 "Resize the window: the drawing expands."
+]
+> in:name=world
+> "Update greeting"@greet
+> t:"Hello, {name}"

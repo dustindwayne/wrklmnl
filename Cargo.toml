@@ -1,0 +1,19 @@
+[workspace]
+members = ["crates/graphics", "crates/ui", "crates/language", "crates/terminal"]
+resolver = "2"
+exclude = ["vendor/eframe"]
+
+[patch.crates-io]
+eframe = { path = "vendor/eframe" }
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+
+[profile.release]
+opt-level = "z"
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

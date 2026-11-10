@@ -1,0 +1,13 @@
+# Syntax draft. No language name or dedicated file extension has been chosen.
+nav[ico:term <> Home@home|Terminal@terminal|+@new]
+>
+bx[
+  hdr:"Hello, {name}"
+  > t:"DEMO / A compact definition; no HTML or CSS."
+  > in:name=world
+  > "Update greeting"@greet
+  > tbl[Feature|Status > "Spatial shorthand"|Ready > "Bindings and actions"|Ready]
+  > p:0.65
+  > code:powershell "Get-ChildItem -Path $HOME | Select-Object Name"
+  > ftr[t:"Ready" <> "New window"@new]
+]

@@ -1,0 +1,15 @@
+[package]
+name = "terminal-ui-graphics"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+default = []
+font-basic = []
+
+[lib]
+path = "src/lib.rs"
+
+[[example]]
+name = "embedded_surface"
+required-features = ["font-basic"]

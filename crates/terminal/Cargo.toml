@@ -1,0 +1,47 @@
+[package]
+name = "dterm"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+default-run = "WRKLMNL"
+
+[features]
+default = []
+capture = ["eframe/__screenshot"]
+
+[[bin]]
+name = "WRKLMNL"
+path = "src/main.rs"
+
+[dependencies]
+terminal-ui-graphics = { path = "../graphics" }
+terminal-ui-kit = { path = "../ui" }
+terminal-ui-language = { path = "../language" }
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+eframe = { version = "=0.31.1", default-features = false, features = ["default_fonts", "glow", "accesskit", "wayland", "x11"] }
+portable-pty = "0.9"
+vt100 = "0.17"
+ab_glyph = "0.2"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+
+clap = { version = "4", features = ["derive"] }
+directories = "6"
+chrono = "0.4"
+serialport = "4"
+tokio-serial = "5"
+tokio = { version = "1", features = ["full"] }
+toml = "0.9"
+tempfile = "3"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+russh = { version = "=0.65.1", default-features = false, features = ["ring", "rsa"] }
+russh-sftp = "=3.0.1"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+
+
+[target.'cfg(unix)'.dependencies]
+libc = '0.2'

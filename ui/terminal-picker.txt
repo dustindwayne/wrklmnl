@@ -1,0 +1,6 @@
+col:12[
+  nav:12[hdr:"Open a terminal" <> "Open file"@open_file]
+  > t:"Choose an installed shell to start a session."
+  > content[] #BACK
+  > content[] #LAUNCHER
+]

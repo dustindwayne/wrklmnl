@@ -1,0 +1,13 @@
+[package]
+name = "terminal-ui-language"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+
+[dependencies]
+serde_json.workspace = true
+terminal-ui-graphics = { path = "../graphics" }
+terminal-ui-kit = { path = "../ui" }
+
+[dev-dependencies]
+serde_json.workspace = true

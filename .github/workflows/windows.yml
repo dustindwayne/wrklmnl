@@ -1,0 +1,24 @@
+name: Windows build
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  windows:
+    runs-on: windows-2025
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Rust
+        run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt
+      - name: Check formatting
+        run: cargo +1.99.1 fmt --all -- --check
+      - name: Run tests
+        run: cargo +1.99.1 test --locked --workspace
+      - name: Build desktop executable
+        run: cargo +1.99.1 build --locked --bin WRKLMNL

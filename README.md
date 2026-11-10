@@ -30,13 +30,13 @@ Open **File transfer** to browse local and remote folders side by side. SFTP upl
 
 ## Files
 
-Browse your workspace as a desktop canvas. Drag items to move them, open a folder in **Contents**, or preview a file beside the canvas. Lightweight text files can be edited in place. Open **Properties** for the path, name, timestamps, and permissions.
+Browse your workspace as a desktop canvas. Drag items to move them, open a folder in **Contents**, or preview a file beside the canvas. Lightweight text files can be edited in place. Choose a file type to sort matching items by modification date, newest first. Play supported audio and video in Contents with FFmpeg installed and `ffprobe`, `ffmpeg`, and `ffplay` on PATH. Open **Properties** for the path, name, timestamps, and permissions.
 
 ## Recent, Settings, and Shortcuts
 
 Reopen a folder from **Recent**. Use **Settings → Layout** to reorder the dashboard and sidebar. The layout saves automatically.
 
-Under **Settings → Appearance**, choose **Basic** for the standard look or **pixel_tech** for charcoal circuit artwork. **Dark** and **Light** are separate from the theme. One accent controls selection, focus, and primary actions. In **Backgrounds**, replace either bar image or switch it to solid, then apply your changes.
+Choose **Dark** or **Light** and an **Accent color** in **Settings → Appearance**. Choose a solid background or try Velvet, Ember, Prism, or Afterglow gradients. Save your theme or import one from a file. Add images to the top bar and sidebar in **Backgrounds**.
 
 See [keyboard shortcuts](KEYBINDINGS.md) for navigation and terminal controls.
 

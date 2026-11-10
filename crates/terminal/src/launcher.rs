@@ -6,6 +6,7 @@ use eframe::egui;
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 pub enum Action {
@@ -24,6 +25,8 @@ pub struct Workspace {
     folder: PathBuf,
     input: String,
     entries: Vec<(PathBuf, bool)>,
+    modified: BTreeMap<PathBuf, SystemTime>,
+    file_type: FileType,
     error: String,
     loaded: bool,
     selected: Option<PathBuf>,
@@ -62,6 +65,8 @@ impl Workspace {
             input: root.display().to_string(),
             root,
             entries: Vec::new(),
+            modified: BTreeMap::new(),
+            file_type: FileType::All,
             error: String::new(),
             loaded: false,
             selected: None,
@@ -81,11 +86,25 @@ impl Workspace {
 
     #[cfg(feature = "capture")]
     pub fn capture_select(&mut self, path: PathBuf, ctx: &egui::Context) {
+        if let Ok(label) = std::env::var("DTERM_CAPTURE_FILE_TYPE") {
+            if let Some(kind) = FileType::CHOICES
+                .into_iter()
+                .find(|kind| kind.label().eq_ignore_ascii_case(&label))
+            {
+                self.file_type = kind;
+            }
+        }
         self.browse(self.root.clone());
         if std::env::var_os("DTERM_CAPTURE_FILE_PROPERTIES").is_some() {
             self.properties = Some(Properties::new(path.clone()));
         }
         self.select_preview(path, ctx, false);
+    }
+
+    pub fn pause_media(&mut self) {
+        if let Some(preview) = &mut self.preview {
+            preview.pause_media();
+        }
     }
 
     pub fn has_unsaved_preview(&self) -> bool {
@@ -174,6 +193,7 @@ impl Workspace {
         self.folder = path;
         self.error.clear();
         self.entries.clear();
+        self.modified.clear();
         self.thumbnails.clear();
         self.thumbnail_jobs.clear();
         self.selected = None;
@@ -183,6 +203,11 @@ impl Workspace {
                     match entry {
                         Ok(entry) => {
                             let path = entry.path();
+                            if let Ok(modified) =
+                                entry.metadata().and_then(|metadata| metadata.modified())
+                            {
+                                self.modified.insert(path.clone(), modified);
+                            }
                             self.entries.push((path.clone(), path.is_dir()));
                         }
                         Err(error) => self.error = error.to_string(),
@@ -204,7 +229,7 @@ impl Workspace {
 
     pub fn settings(&mut self, ui: &mut egui::Ui) {
         ui.heading("Workspace location");
-        ui.label("Choose the folder this launcher opens. Files stay where they are.");
+        ui.label("Choose the folder to open in Files. Your files stay where they are.");
         ui.horizontal(|ui| {
             let field = ui.add(
                 egui::TextEdit::singleline(&mut self.input)
@@ -342,6 +367,15 @@ impl Workspace {
                         };
                         self.new_folder = None;
                     }
+                    crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("files_type"))
+                        .selected_text(self.file_type.label())
+                        .show_ui(ui, |ui| {
+                            for kind in FileType::CHOICES {
+                                ui.selectable_value(&mut self.file_type, kind, kind.label());
+                            }
+                        })
+                        .response
+                        .on_hover_text("Filter by file type");
                     let contents = button(
                         ui,
                         Icon::Preview,
@@ -359,6 +393,9 @@ impl Workspace {
                     }
                     if contents.clicked() {
                         self.show_contents = !self.show_contents;
+                        if !self.show_contents {
+                            self.pause_media();
+                        }
                     }
                     if button(ui, Icon::Terminal, "Open terminal here").clicked() {
                         action = Some(Action::Terminal(self.folder.clone()));
@@ -467,7 +504,7 @@ impl Workspace {
                 .corner_radius(4);
             if expanded {
                 frame.show(ui, |ui| {
-                    preview_action = preview.show(ui);
+                    preview_action = preview.show(ui, self.file_type);
                 });
             } else if ui.available_width() >= 650.0 {
                 let width = (ui.available_width() * 0.39).clamp(280.0, 570.0);
@@ -478,7 +515,7 @@ impl Workspace {
                     .show_separator_line(false)
                     .frame(frame)
                     .show_inside(ui, |ui| {
-                        preview_action = preview.show(ui);
+                        preview_action = preview.show(ui, self.file_type);
                     });
             } else {
                 let height = (ui.available_height() * 0.48).max(130.0);
@@ -489,7 +526,7 @@ impl Workspace {
                     .show_separator_line(false)
                     .frame(frame)
                     .show_inside(ui, |ui| {
-                        preview_action = preview.show(ui);
+                        preview_action = preview.show(ui, self.file_type);
                     });
             }
         } else {
@@ -511,18 +548,30 @@ impl Workspace {
         }
         let mut inspect = None;
         let filter = self.filter.as_deref().unwrap_or_default().to_lowercase();
+        let sorted = (self.file_type != FileType::All)
+            .then(|| filtered_entries(&self.entries, &self.modified, self.file_type, &filter));
+        if let Some(entries) = &sorted {
+            ui.weak(format!("{} items · Newest modified first", entries.len()));
+        }
+        let entries = sorted.as_deref().unwrap_or(&self.entries);
+        let automatic_positions = BTreeMap::new();
         if !expanded {
             egui::ScrollArea::both()
                 .drag_to_scroll(false)
                 .auto_shrink([false, false])
                 .show(ui, |ui| {
                     let viewport = ui.available_size();
-                    let layout = desktop_layout(&self.entries, &self.positions, viewport.x);
+                    let positions = if sorted.is_some() {
+                        &automatic_positions
+                    } else {
+                        &self.positions
+                    };
+                    let layout = desktop_layout(entries, positions, viewport.x);
                     let canvas_size = layout.iter().fold(viewport, |size, rect| {
                         size.max(rect.max.to_vec2() + egui::vec2(8.0, 8.0))
                     });
                     let (canvas, _) = ui.allocate_exact_size(canvas_size, egui::Sense::hover());
-                    for ((path, directory), rect) in self.entries.iter().zip(&layout) {
+                    for ((path, directory), rect) in entries.iter().zip(&layout) {
                         let rect = rect.translate(canvas.min.to_vec2());
                         if !ui.is_rect_visible(rect) {
                             continue;
@@ -592,7 +641,7 @@ impl Workspace {
                             }
                         }
                     }
-                    if dropped.is_none() {
+                    if dropped.is_none() && sorted.is_none() {
                         if let Some(pointer) = ui
                             .ctx()
                             .pointer_interact_pos()
@@ -876,6 +925,94 @@ fn desktop_layout(
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FileType {
+    All,
+    Folders,
+    Images,
+    Audio,
+    Video,
+    Documents,
+    Code,
+    Spreadsheets,
+    Archives,
+    Apps,
+    Other,
+}
+
+impl FileType {
+    pub const CHOICES: [Self; 11] = [
+        Self::All,
+        Self::Folders,
+        Self::Images,
+        Self::Audio,
+        Self::Video,
+        Self::Documents,
+        Self::Code,
+        Self::Spreadsheets,
+        Self::Archives,
+        Self::Apps,
+        Self::Other,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::All => "All types",
+            Self::Folders => "Folders",
+            Self::Images => "Images",
+            Self::Audio => "Audio",
+            Self::Video => "Video",
+            Self::Documents => "Documents",
+            Self::Code => "Code & config",
+            Self::Spreadsheets => "Spreadsheets",
+            Self::Archives => "Archives",
+            Self::Apps => "Apps & shortcuts",
+            Self::Other => "Other files",
+        }
+    }
+
+    pub fn matches(self, path: &Path, folder: bool) -> bool {
+        self == Self::All
+            || file_kind(path, folder).0
+                == match self {
+                    Self::All => "",
+                    Self::Folders => "folder",
+                    Self::Images => "image",
+                    Self::Audio => "audio",
+                    Self::Video => "video",
+                    Self::Documents => "document",
+                    Self::Code => "code",
+                    Self::Spreadsheets => "spreadsheet",
+                    Self::Archives => "archive",
+                    Self::Apps => "app",
+                    Self::Other => "file",
+                }
+    }
+}
+
+fn filtered_entries(
+    entries: &[(PathBuf, bool)],
+    modified: &BTreeMap<PathBuf, SystemTime>,
+    kind: FileType,
+    query: &str,
+) -> Vec<(PathBuf, bool)> {
+    let mut matches: Vec<_> = entries
+        .iter()
+        .filter(|(path, folder)| {
+            kind.matches(path, *folder)
+                && path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .to_lowercase()
+                    .contains(query)
+        })
+        .cloned()
+        .collect();
+    matches.sort_by(|(a, _), (b, _)| modified.get(b).cmp(&modified.get(a)).then(a.cmp(b)));
+    matches
+}
+
 pub fn file_kind(path: &Path, folder: bool) -> (&'static str, &'static str) {
     if folder {
         return ("folder", "Folder");
@@ -890,8 +1027,12 @@ pub fn file_kind(path: &Path, folder: bool) -> (&'static str, &'static str) {
         "png" | "jpg" | "jpeg" | "gif" | "webp" | "svg" | "bmp" | "ico" | "tiff" => {
             ("image", "Image")
         }
-        "mp3" | "flac" | "wav" | "ogg" | "m4a" | "aac" => ("audio", "Audio"),
-        "mp4" | "mov" | "mkv" | "avi" | "webm" => ("video", "Video"),
+        "mp3" | "flac" | "wav" | "ogg" | "oga" | "opus" | "m4a" | "aac" | "aiff" | "aif" => {
+            ("audio", "Audio")
+        }
+        "mp4" | "mov" | "mkv" | "avi" | "webm" | "m4v" | "mpeg" | "mpg" | "mts" | "m2ts" => {
+            ("video", "Video")
+        }
         "zip" | "7z" | "tar" | "gz" | "rar" | "xz" => ("archive", "Archive"),
         "xls" | "xlsx" | "ods" | "csv" | "tsv" => ("spreadsheet", "Spreadsheet"),
         "rs" | "py" | "js" | "ts" | "c" | "cpp" | "h" | "html" | "css" | "toml" | "json"
@@ -990,6 +1131,44 @@ mod tests {
         assert!(
             !egui::Rect::from_min_size(egui::pos2(adjusted.x, adjusted.y), ICON_SIZE)
                 .intersects(obstacle)
+        );
+    }
+
+    #[test]
+    fn file_type_filter_combines_name_and_newest_first() {
+        let paths = [
+            "old.MP3",
+            "new.mp3",
+            "other.png",
+            "unknown.wav",
+            "exclude.mp3",
+        ]
+        .map(|name| (PathBuf::from(name), false));
+        let epoch = SystemTime::UNIX_EPOCH;
+        let modified = BTreeMap::from([
+            (paths[0].0.clone(), epoch),
+            (
+                paths[1].0.clone(),
+                epoch + std::time::Duration::from_secs(60),
+            ),
+            (
+                paths[4].0.clone(),
+                epoch + std::time::Duration::from_secs(120),
+            ),
+        ]);
+        let audio = filtered_entries(&paths, &modified, FileType::Audio, "");
+        assert_eq!(
+            audio,
+            [
+                paths[4].clone(),
+                paths[1].clone(),
+                paths[0].clone(),
+                paths[3].clone()
+            ]
+        );
+        assert_eq!(
+            filtered_entries(&paths, &modified, FileType::Audio, "new"),
+            [paths[1].clone()]
         );
     }
 

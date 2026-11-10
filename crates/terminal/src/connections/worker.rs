@@ -139,13 +139,11 @@ pub async fn run(
             port,
             seconds,
         } => {
-            let mut settings = config::Settings::load(&path)?;
             terminal(
                 Endpoint::Telnet(host, port),
                 None,
                 seconds,
-                &mut settings,
-                &path,
+                path,
                 input,
                 output,
             )
@@ -160,7 +158,7 @@ pub async fn run(
             flow,
             seconds,
         } => {
-            let mut settings = config::Settings::load(&path)?;
+            let settings = config::Settings::load(&path)?;
             let mut serial = discovery::snapshot()
                 .await
                 .unwrap_or_default()
@@ -188,8 +186,7 @@ pub async fn run(
                 Endpoint::Serial(port, serial),
                 None,
                 seconds,
-                &mut settings,
-                &path,
+                path,
                 input,
                 output,
             )
@@ -205,7 +202,7 @@ pub async fn run(
             password_env,
             seconds,
         } => {
-            let mut settings = config::Settings::load(&path)?;
+            let settings = config::Settings::load(&path)?;
             let mut ssh = if let Some(name) = profile {
                 settings
                     .ssh
@@ -230,16 +227,7 @@ pub async fn run(
             let password = password_env
                 .map(|name| std::env::var(&name).with_context(|| format!("Reading {name}")))
                 .transpose()?;
-            terminal(
-                Endpoint::Ssh(ssh),
-                password,
-                seconds,
-                &mut settings,
-                &path,
-                input,
-                output,
-            )
-            .await
+            terminal(Endpoint::Ssh(ssh), password, seconds, path, input, output).await
         }
     }
 }
@@ -248,8 +236,7 @@ async fn terminal(
     endpoint: Endpoint,
     password: Option<String>,
     seconds: Option<u64>,
-    settings: &mut config::Settings,
-    path: &std::path::Path,
+    path: PathBuf,
     input: mpsc::Receiver<Vec<u8>>,
     output: &super::super::session::ConnectionOutput,
 ) -> Result<()> {
@@ -268,10 +255,15 @@ async fn terminal(
             _ = &mut limit => return Ok(()),
             event = session.events.recv() => match event {
                 Some(Event::Connected) => {
-                    settings.remember(&label);
-                    if let Err(error) = settings.save(path) {
-                        tracing::warn!(%error, "Saving recent session failed");
-                    }
+                    let path = path.clone();
+                    let history_label = label.clone();
+                    tokio::task::spawn_blocking(move || {
+                        if let Err(error) =
+                            config::Settings::update(&path, |settings| settings.remember(&history_label))
+                        {
+                            tracing::warn!(%error, "Saving recent session failed");
+                        }
+                    });
                     output.line(&format!("Connected to {label}. Close this session to disconnect.")).await?;
                 }
                 Some(Event::Rx(bytes)) => output.send(bytes).await?,

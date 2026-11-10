@@ -3,7 +3,14 @@ use crate::{
     highlight,
 };
 use eframe::egui;
-use std::path::{Path, PathBuf};
+use std::{
+    fs::File,
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
+
+const MAX_TEXT_BYTES: u64 = 8 * 1024 * 1024;
+
 pub struct Editor {
     text: String,
     saved: String,
@@ -26,7 +33,7 @@ impl Default for Editor {
             path: String::new(),
             opened: None,
             completion: Completion::default(),
-            message: "Open a file or choose a language. Ctrl+Space requests completion.".into(),
+            message: String::new(),
             cursor: 0,
             pending_open: None,
             pending_save: None,
@@ -39,18 +46,11 @@ impl Editor {
         self.opened.is_some() || self.pending_open.is_some()
     }
     pub fn request_open(&mut self, path: PathBuf) -> Result<(), String> {
-        let meta = std::fs::metadata(&path).map_err(|e| e.to_string())?;
-        if !meta.is_file() || meta.len() > 8 * 1024 * 1024 {
-            return Err("Choose a text/code file up to 8 MiB".into());
-        }
-        let bytes = std::fs::read(&path).map_err(|e| e.to_string())?;
-        if bytes.contains(&0) || std::str::from_utf8(&bytes).is_err() {
-            return Err("This file is binary or is not UTF-8 text".into());
-        }
+        let text = read_text(&path)?;
         if self.dirty() {
             self.pending_open = Some(path);
         } else {
-            self.open(path);
+            self.open(path, text);
         }
         Ok(())
     }
@@ -58,6 +58,13 @@ impl Editor {
         self.text != self.saved
     }
     fn resolve(&self, cwd: &Path) -> PathBuf {
+        if let Some(opened) = self
+            .opened
+            .as_ref()
+            .filter(|path| path.to_string_lossy() == self.path)
+        {
+            return opened.clone();
+        }
         let path = PathBuf::from(&self.path);
         if path.is_absolute() {
             path
@@ -65,22 +72,35 @@ impl Editor {
             cwd.join(path)
         }
     }
-    fn open(&mut self, path: PathBuf) {
-        match std::fs::read_to_string(&path) {
-            Ok(text) => {
-                self.text = text;
-                self.saved = self.text.clone();
-                self.language = language_for(&path).into();
-                self.opened = Some(path.clone());
-                self.path = path.display().to_string();
-                self.completion.dismiss();
-                self.message = format!("Opened {}", path.display());
-            }
-            Err(e) => self.message = e.to_string(),
-        }
+    fn open(&mut self, path: PathBuf, text: String) {
+        self.text = text;
+        self.saved = self.text.clone();
+        self.language = language_for(&path).into();
+        self.path = path.display().to_string();
+        self.opened = Some(path);
+        self.pending_open = None;
+        self.pending_save = None;
+        self.pending_close = false;
+        self.completion.dismiss();
+        self.message = "Ctrl+Space shows suggestions.".into();
     }
     fn save(&mut self, path: PathBuf) {
-        match crate::persistence::atomic_write(&path, self.text.as_bytes()) {
+        if self.opened.as_ref() == Some(&path) {
+            match read_text(&path) {
+                Ok(text) if text == self.saved => {}
+                Ok(_) => {
+                    self.message = "This file changed on disk. Save to another path or reopen it before replacing its contents.".into();
+                    return;
+                }
+                Err(error) => {
+                    self.message = format!(
+                        "Could not verify the saved file. Your edit is still open. {error}"
+                    );
+                    return;
+                }
+            }
+        }
+        match write_text(&path, self.text.as_bytes()) {
             Ok(()) => {
                 self.saved = self.text.clone();
                 self.opened = Some(path.clone());
@@ -153,10 +173,8 @@ impl Editor {
             );
             if crate::widgets::button(ui, "Open").clicked() {
                 let path = self.resolve(cwd);
-                if self.dirty() {
-                    self.pending_open = Some(path);
-                } else {
-                    self.open(path);
+                if let Err(error) = self.request_open(path) {
+                    self.message = error;
                 }
             }
             let save = crate::widgets::button(ui, "Save").clicked()
@@ -182,7 +200,10 @@ impl Editor {
                 ));
                 if crate::widgets::button(ui, "Discard and open").clicked() {
                     self.pending_open = None;
-                    self.open(path);
+                    match read_text(&path) {
+                        Ok(text) => self.open(path, text),
+                        Err(error) => self.message = error,
+                    }
                 }
                 if crate::widgets::button(ui, "Cancel").clicked() {
                     self.pending_open = None;
@@ -275,6 +296,55 @@ impl Editor {
         ui.label(egui::RichText::new(&self.message).small());
     }
 }
+
+fn write_text(path: &Path, bytes: &[u8]) -> anyhow::Result<()> {
+    if path.exists() {
+        // Save through links to their target and retain its permissions and attributes.
+        let target = std::fs::canonicalize(path)?;
+        let metadata = std::fs::metadata(&target)?;
+        anyhow::ensure!(metadata.is_file(), "Choose a regular text file.");
+        let permissions = metadata.permissions();
+        anyhow::ensure!(!permissions.readonly(), "This file is read-only.");
+        let folder = target
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("The file has no parent folder."))?;
+        let mut staged = tempfile::NamedTempFile::new_in(folder)?;
+        staged.write_all(bytes)?;
+        staged.as_file().set_permissions(permissions)?;
+        staged.as_file().sync_all()?;
+        crate::preview_edit::replace(&target, staged)?;
+    } else {
+        let folder = path
+            .parent()
+            .filter(|folder| !folder.as_os_str().is_empty())
+            .unwrap_or_else(|| Path::new("."));
+        std::fs::create_dir_all(folder)?;
+        let mut staged = tempfile::NamedTempFile::new_in(folder)?;
+        staged.write_all(bytes)?;
+        staged.as_file().sync_all()?;
+        staged.persist_noclobber(path)?;
+    }
+    Ok(())
+}
+
+fn read_text(path: &Path) -> Result<String, String> {
+    let meta = std::fs::metadata(path).map_err(|error| error.to_string())?;
+    if !meta.is_file() || meta.len() > MAX_TEXT_BYTES {
+        return Err("Choose a text file up to 8 MiB.".into());
+    }
+    let mut bytes = Vec::new();
+    File::open(path)
+        .and_then(|file| file.take(MAX_TEXT_BYTES + 1).read_to_end(&mut bytes))
+        .map_err(|error| error.to_string())?;
+    if bytes.len() as u64 > MAX_TEXT_BYTES {
+        return Err("Choose a text file up to 8 MiB.".into());
+    }
+    if bytes.contains(&0) {
+        return Err("This file must contain UTF-8 text.".into());
+    }
+    String::from_utf8(bytes).map_err(|_| "This file must contain UTF-8 text.".into())
+}
+
 fn language_for(path: &Path) -> &'static str {
     match path
         .extension()
@@ -298,10 +368,66 @@ fn language_for(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn opening_rejects_large_text_and_saving_preserves_external_changes() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir_in(std::env::current_dir()?)?;
+        let path = folder.path().join("notes.txt");
+        let large = folder.path().join("large.txt");
+        std::fs::write(&path, "original")?;
+        File::create(&large)?.set_len(MAX_TEXT_BYTES + 1)?;
+        let mut editor = Editor::default();
+        editor.request_open(path.clone()).unwrap();
+        assert!(editor.request_open(large).is_err());
+        assert_eq!(editor.text, "original");
+        editor.text = "my edit".into();
+        std::fs::write(&path, "external edit")?;
+        editor.save(path.clone());
+        assert_eq!(std::fs::read_to_string(&path)?, "external edit");
+        assert!(editor.dirty());
+        assert!(editor.message.contains("changed on disk"));
+        Ok(())
+    }
+
+    #[test]
+    fn saves_retain_permissions_and_reject_read_only_files() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir_in(std::env::current_dir()?)?;
+        let path = folder.path().join("notes.txt");
+        write_text(&path, b"first")?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o640))?;
+        }
+        let before = std::fs::metadata(&path)?.permissions();
+        write_text(&path, b"second")?;
+        assert_eq!(std::fs::metadata(&path)?.permissions(), before);
+        let mut readonly = before.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&path, readonly)?;
+        assert!(write_text(&path, b"third").is_err());
+        assert_eq!(std::fs::read(&path)?, b"second");
+        std::fs::set_permissions(&path, before)?;
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn saving_through_a_link_updates_the_target() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir_in(std::env::current_dir()?)?;
+        let target = folder.path().join("notes.txt");
+        let link = folder.path().join("notes-link.txt");
+        std::fs::write(&target, "first")?;
+        std::os::unix::fs::symlink(&target, &link)?;
+        write_text(&link, b"second")?;
+        assert!(std::fs::symlink_metadata(&link)?.is_symlink());
+        assert_eq!(std::fs::read(&target)?, b"second");
+        Ok(())
+    }
     #[test]
     fn file_routes_are_contextual_and_preserve_dirty_documents() {
         let base = std::env::temp_dir().join(format!(
-            "dterm-editor-{}-{}",
+            "wrklmnl-editor-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

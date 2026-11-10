@@ -20,7 +20,7 @@ pub const ACTIONS: &[(&str, &str, &str)] = &[
     ("detach_pane", "Detach active pane", "Ctrl+Shift+E"),
     ("dock_pane", "Dock active pane", "Ctrl+Shift+B"),
     ("terminal_focus", "Focus terminal canvas", "Ctrl+Shift+T"),
-    ("keybindings", "Open keybindings", "Ctrl+Shift+K"),
+    ("keybindings", "Open Shortcuts", "Ctrl+Shift+K"),
     ("dashboard", "Open dashboard", "Ctrl+Shift+H"),
     (
         "copy_terminal",
@@ -83,13 +83,15 @@ impl Bindings {
                     match v.validate() {
                         Ok(()) => v,
                         Err(e) => Self {
-                            message: format!("Keybindings preserved; defaults loaded: {e}"),
+                            message: format!("Loaded default shortcuts. Your saved shortcuts are still on disk. {e}"),
                             ..Self::default()
                         },
                     }
                 }
                 Err(e) => Self {
-                    message: format!("Keybindings preserved; defaults loaded: {e}"),
+                    message: format!(
+                        "Loaded default shortcuts. Your saved shortcuts are still on disk. {e}"
+                    ),
                     ..Self::default()
                 },
             },

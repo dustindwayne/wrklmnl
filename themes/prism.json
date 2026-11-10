@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "light": false,
+  "accent": [
+    220,
+    168,
+    197
+  ],
+  "ui_size": 15.0,
+  "terminal_size": 15.0,
+  "syntax": true,
+  "gradient": "prism"
+}

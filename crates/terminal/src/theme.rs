@@ -1,4 +1,154 @@
 use eframe::egui::{self, Color32, Stroke, Vec2};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Gradient {
+    Velvet,
+    Ember,
+    Prism,
+    Afterglow,
+}
+
+impl Gradient {
+    pub const ALL: [Self; 4] = [Self::Velvet, Self::Ember, Self::Prism, Self::Afterglow];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Velvet => "Velvet",
+            Self::Ember => "Ember",
+            Self::Prism => "Prism",
+            Self::Afterglow => "Afterglow",
+        }
+    }
+
+    fn colors(self) -> [[u8; 3]; 4] {
+        match self {
+            Self::Velvet => [[178, 12, 141], [95, 8, 151], [217, 17, 88], [131, 8, 104]],
+            Self::Ember => [[232, 64, 9], [187, 12, 34], [108, 7, 68], [218, 95, 8]],
+            Self::Prism => [[191, 13, 152], [225, 25, 71], [216, 90, 10], [117, 9, 162]],
+            Self::Afterglow => [[224, 32, 98], [164, 12, 112], [104, 8, 132], [218, 80, 10]],
+        }
+    }
+
+    fn pattern(self, x: f32, y: f32) -> (f32, f32) {
+        match self {
+            Self::Velvet => {
+                let fold = x * 2.7 + (y * 3.8).sin() * 0.28;
+                (
+                    fold,
+                    0.60 + 0.25 * (fold * std::f32::consts::TAU).sin().abs(),
+                )
+            }
+            Self::Ember => {
+                let height = 1.0 - y;
+                let center = 0.24 + height * 0.36 + (height * 8.0).sin() * 0.07;
+                let plume = (x - center).abs() / (0.12 + height * 0.45);
+                (plume * 0.55 + y * 0.22, 0.82 - plume.min(1.0) * 0.24)
+            }
+            Self::Prism => {
+                let spectrum = x * 1.25 + y * 0.70;
+                (spectrum, 0.70 + (x * 4.0 - y * 3.0).sin().abs() * 0.12)
+            }
+            Self::Afterglow => {
+                let radius = ((x - 0.76).powi(2) + ((y - 0.63) * 1.6).powi(2)).sqrt();
+                (radius * 2.6, 0.64 + 0.20 * (radius * 15.0).cos().abs())
+            }
+        }
+    }
+
+    fn sample(self, x: f32, y: f32, light: bool) -> Color32 {
+        let (phase, strength) = self.pattern(x, y);
+        let t = phase.rem_euclid(1.0) * 4.0;
+        let index = t.floor() as usize;
+        let blend = t.fract();
+        let blend = blend * blend * (3.0 - 2.0 * blend);
+        let colors = self.colors();
+        let a = colors[index % 4];
+        let b = colors[(index + 1) % 4];
+        let strength = if light { strength * 0.65 } else { strength };
+        let base = if light { 255.0 } else { 0.0 };
+        let channel = |i| {
+            let value = a[i] as f32 * (1.0 - blend) + b[i] as f32 * blend;
+            (base * (1.0 - strength) + value * strength).round() as u8
+        };
+        Color32::from_rgb(channel(0), channel(1), channel(2))
+    }
+}
+
+#[derive(Clone)]
+struct GradientMesh {
+    gradient: Gradient,
+    light: bool,
+    rect: egui::Rect,
+    mesh: Arc<egui::Mesh>,
+}
+
+pub fn paint_gradient(ctx: &egui::Context, gradient: Option<Gradient>, light: bool) {
+    let Some(gradient) = gradient else { return };
+    let rect = ctx.screen_rect();
+    let key = egui::Id::new(("workspace_gradient", ctx.viewport_id()));
+    let cached = ctx.data_mut(|data| data.get_temp::<GradientMesh>(key));
+    let mesh = match cached {
+        Some(cached)
+            if cached.gradient == gradient && cached.light == light && cached.rect == rect =>
+        {
+            cached.mesh
+        }
+        _ => {
+            let (columns, rows) = if gradient == Gradient::Prism {
+                (12, 8)
+            } else {
+                (64, 40)
+            };
+            let mut mesh = egui::Mesh::default();
+            for row in 0..rows {
+                for column in 0..columns {
+                    let left = column as f32 / columns as f32;
+                    let right = (column + 1) as f32 / columns as f32;
+                    let top = row as f32 / rows as f32;
+                    let bottom = (row + 1) as f32 / rows as f32;
+                    for triangle in [
+                        [[left, top], [right, top], [left, bottom]],
+                        [[right, top], [right, bottom], [left, bottom]],
+                    ] {
+                        let center_x = triangle.iter().map(|point| point[0]).sum::<f32>() / 3.0;
+                        let center_y = triangle.iter().map(|point| point[1]).sum::<f32>() / 3.0;
+                        let start = mesh.vertices.len() as u32;
+                        for [x, y] in triangle {
+                            let color = if gradient == Gradient::Prism {
+                                gradient.sample(center_x, center_y, light)
+                            } else {
+                                gradient.sample(x, y, light)
+                            };
+                            mesh.colored_vertex(
+                                rect.min + egui::vec2(x * rect.width(), y * rect.height()),
+                                color,
+                            );
+                        }
+                        mesh.add_triangle(start, start + 1, start + 2);
+                    }
+                }
+            }
+            let mesh = Arc::new(mesh);
+            ctx.data_mut(|data| {
+                data.insert_temp(
+                    key,
+                    GradientMesh {
+                        gradient,
+                        light,
+                        rect,
+                        mesh: mesh.clone(),
+                    },
+                )
+            });
+            mesh
+        }
+    };
+    ctx.layer_painter(egui::LayerId::background())
+        .add(egui::Shape::Mesh(mesh));
+}
 pub fn accent(light: bool, raw: [u8; 3]) -> Color32 {
     let mut rgb = raw;
     let luminance = |rgb: [u8; 3]| {
@@ -40,6 +190,7 @@ pub fn apply(ctx: &egui::Context, light: bool, accent: [u8; 3]) {
         } else {
             egui::Visuals::dark()
         };
+        style.interaction.selectable_labels = false;
         style.spacing.item_spacing = Vec2::new(12.0, 12.0);
         style.spacing.button_padding = Vec2::new(12.0, 8.0);
         style.visuals.panel_fill = if light {
@@ -112,6 +263,61 @@ fn set_accent(visuals: &mut egui::Visuals, light: bool, accent: [u8; 3]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn themes_have_distinct_patterns_independent_of_color() {
+        for (index, first) in Gradient::ALL.iter().enumerate() {
+            for second in &Gradient::ALL[index + 1..] {
+                let differences = (0..10)
+                    .filter(|sample| {
+                        let x = *sample as f32 / 10.0;
+                        let y = 1.0 - x;
+                        first.pattern(x, y) != second.pattern(x, y)
+                    })
+                    .count();
+                assert!(differences >= 8, "{first:?} and {second:?} share a pattern");
+            }
+        }
+    }
+    #[test]
+    fn gradients_keep_the_background_readable_in_both_modes() {
+        for gradient in Gradient::ALL {
+            for row in 0..=30 {
+                for column in 0..=40 {
+                    let x = column as f32 / 40.0;
+                    let y = row as f32 / 30.0;
+                    let dark = gradient.sample(x, y, false);
+                    let light = gradient.sample(x, y, true);
+                    let luminance = |color: Color32| {
+                        let linear = |value: u8| {
+                            let value = value as f32 / 255.0;
+                            if value <= 0.04045 {
+                                value / 12.92
+                            } else {
+                                ((value + 0.055) / 1.055).powf(2.4)
+                            }
+                        };
+                        linear(color.r()) * 0.2126
+                            + linear(color.g()) * 0.7152
+                            + linear(color.b()) * 0.0722
+                    };
+                    let contrast = |a: Color32, b: Color32| {
+                        let a = luminance(a);
+                        let b = luminance(b);
+                        (a.max(b) + 0.05) / (a.min(b) + 0.05)
+                    };
+                    assert!(
+                        contrast(dark, Color32::from_gray(245)) >= 4.5,
+                        "{gradient:?} at {x}, {y}: {dark:?}, contrast {}",
+                        contrast(dark, Color32::from_gray(245))
+                    );
+                    assert!(
+                        contrast(light, Color32::from_gray(23)) >= 4.5,
+                        "{gradient:?} at {x}, {y}"
+                    );
+                }
+            }
+        }
+    }
 
     #[test]
     fn accent_updates_common_focus_and_selection_colors() {
@@ -120,6 +326,7 @@ mod tests {
         for light in [false, true] {
             apply(&ctx, light, raw);
             let style = ctx.style();
+            assert!(!style.interaction.selectable_labels);
             let selected = accent(light, raw);
             assert_eq!(style.visuals.hyperlink_color, selected);
             assert_eq!(style.visuals.selection.stroke.color, selected);

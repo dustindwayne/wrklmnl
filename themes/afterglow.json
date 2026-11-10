@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "light": false,
+  "accent": [
+    224,
+    170,
+    162
+  ],
+  "ui_size": 15.0,
+  "terminal_size": 15.0,
+  "syntax": true,
+  "gradient": "afterglow"
+}

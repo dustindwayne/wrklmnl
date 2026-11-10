@@ -1,4 +1,4 @@
-//! dterm's own screens are authored in the public shorthand, not a second layout system.
+//! WRKLMNL screens authored in the shared UI shorthand.
 use eframe::egui;
 use std::collections::BTreeMap;
 use terminal_ui_kit::{Action, Element};

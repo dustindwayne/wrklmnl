@@ -284,6 +284,8 @@ impl App {
     fn muted(&self) -> Color32 {
         if self.options.light {
             Color32::from_rgb(98, 98, 98)
+        } else if self.appearance_edit.gradient.is_some() {
+            Color32::from_gray(210)
         } else {
             Color32::from_rgb(163, 163, 163)
         }
@@ -548,7 +550,7 @@ impl App {
             .replace("content[] #CUSTOM", &custom)
     }
     fn workspace_navigation(&mut self, ui: &mut egui::Ui, compact: bool) {
-        let source = self.layout.navigation(self.editor.has_document(), compact);
+        let source = self.layout.navigation(self.editor.has_document());
         let selected = format!("page_{}", self.page);
         self.workspace_render(
             ui,
@@ -565,8 +567,9 @@ impl App {
                 self.workspace_values(),
                 None,
             );
-            if !compact {
-                ui.label(RichText::new("Ctrl+Shift+N").small().color(self.muted()));
+            let shortcut = self.bindings.keys.get("new_window");
+            if let Some(shortcut) = shortcut.filter(|s| !compact && !s.trim().is_empty()) {
+                ui.label(RichText::new(shortcut).small().color(self.muted()));
             }
         });
     }
@@ -589,7 +592,7 @@ impl App {
             return;
         }
         ui.horizontal(|ui| {
-            ui.heading("Terminal");
+            ui.heading("Terminals");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if crate::widgets::button(ui, "+ New session").clicked() {
                     self.dock.cancel_tab_target();
@@ -849,13 +852,9 @@ impl App {
         let draft = &self.appearance_edit;
         let dirty = draft != &self.appearance;
         let backgrounds_ready = (draft.top_background == self.appearance.top_background
-            || self
-                .top_background
-                .ready(draft.preset, &draft.top_background))
+            || self.top_background.ready(&draft.top_background))
             && (draft.side_background == self.appearance.side_background
-                || self
-                    .side_background
-                    .ready(draft.preset, &draft.side_background));
+                || self.side_background.ready(&draft.side_background));
         let mut apply = false;
         let mut revert = false;
         ui.horizontal_wrapped(|ui| {
@@ -886,7 +885,6 @@ impl App {
             ui.weak("Preview an image on each bar. Apply changes to keep it.");
             ui.add_space(8.0);
             let workspace = self.launcher.root();
-            let preset = self.appearance_edit.preset;
             for (bar, slot, settings) in [
                 (
                     Bar::Top,
@@ -899,13 +897,24 @@ impl App {
                     &mut self.appearance_edit.side_background,
                 ),
             ] {
-                if background_card(ui, bar, preset, slot, settings) {
+                if background_card(ui, bar, slot, settings) {
                     self.bar_picker = Some(bar);
                     self.file_picker
                         .start_image(workspace.to_path_buf(), settings.path.as_deref());
                 }
             }
         } else {
+            ui.horizontal_wrapped(|ui| {
+                if crate::widgets::button(ui, "Save theme…").clicked() {
+                    self.file_picker
+                        .start_theme(self.launcher.root().to_path_buf(), true);
+                }
+                if crate::widgets::button(ui, "Import theme…").clicked() {
+                    self.file_picker
+                        .start_theme(self.launcher.root().to_path_buf(), false);
+                }
+            });
+            ui.add_space(16.0);
             self.appearance_edit.controls(ui);
         }
 
@@ -1112,23 +1121,10 @@ impl App {
         self.focus_terminal = true;
         Ok(())
     }
-    fn framework(&mut self, ui: &mut egui::Ui) {
+    fn embedded_view(&mut self, ui: &mut egui::Ui) {
         let Some(view) = self.view.clone() else {
-            ui.heading("UI framework");
-            ui.label("Connect an app using --ui-program, or open the sample below.");
-            if crate::widgets::add(ui, egui::Button::new("Open framework demo").frame(false))
-                .clicked()
-            {
-                match Document::parse(include_str!("../../../examples/ui-example.txt")) {
-                    Ok(d) => {
-                        if let Ok(v) = d.render(&BTreeMap::new()) {
-                            self.document = Some(d);
-                            self.set_view(v);
-                        }
-                    }
-                    Err(e) => self.status = e,
-                }
-            }
+            ui.heading("Embedded view");
+            ui.weak("Waiting for content…");
             return;
         };
         ui.heading(&view.title);
@@ -1184,7 +1180,6 @@ impl Drop for App {
 fn background_card(
     ui: &mut egui::Ui,
     bar: crate::bar_background::Bar,
-    preset: crate::bar_background::Preset,
     slot: &crate::bar_background::ImageSlot,
     settings: &mut crate::bar_background::Settings,
 ) -> bool {
@@ -1202,12 +1197,12 @@ fn background_card(
                     Bar::Side => "Left sidebar",
                 };
                 ui.strong(label);
-                slot.preview(ui, bar, preset, settings);
+                slot.preview(ui, bar, settings);
                 let mut choose = false;
                 ui.horizontal_wrapped(|ui| {
                     choose = crate::widgets::button(
                         ui,
-                        if settings.has_image(preset) {
+                        if settings.path.is_some() {
                             "Replace image…"
                         } else {
                             "Choose image…"
@@ -1224,22 +1219,14 @@ fn background_card(
                             .truncate(),
                         )
                         .on_hover_text(path.display().to_string());
-                    } else if settings.has_image(preset) {
-                        ui.weak("pixel_tech theme");
                     } else {
                         ui.weak("Solid background");
                     }
-                    if settings.has_image(preset) && crate::widgets::button(ui, "Remove").clicked()
-                    {
+                    if settings.path.is_some() && crate::widgets::button(ui, "Remove").clicked() {
                         settings.remove();
                     }
-                    if (!settings.use_builtin || settings.path.is_some())
-                        && crate::widgets::button(ui, "Use theme").clicked()
-                    {
-                        *settings = Default::default();
-                    }
                 });
-                if settings.has_image(preset) {
+                if settings.path.is_some() {
                     ui.add(
                         egui::Slider::new(&mut settings.intensity, 0.0..=0.35)
                             .text("Intensity")
@@ -1247,7 +1234,7 @@ fn background_card(
                     );
                     if let Some(error) = slot.error() {
                         ui.colored_label(ui.visuals().error_fg_color, error);
-                    } else if !slot.ready(preset, settings) {
+                    } else if !slot.ready(settings) {
                         ui.weak("Loading preview…");
                     }
                 }
@@ -1260,15 +1247,13 @@ fn background_card(
 
 impl eframe::App for App {
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
-        if self.options.light {
-            Color32::from_rgb(250, 250, 250)
-        } else {
-            Color32::from_rgb(17, 17, 17)
-        }
-        .to_normalized_gamma_f32()
+        crate::chrome::workspace_fill(self.options.light).to_normalized_gamma_f32()
     }
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.scratchpad.tick(ctx);
+        if self.page != 7 {
+            self.launcher.pause_media();
+        }
         if self.page != 7 && !self.file_picker.open {
             if let Some(path) = ctx.input(|i| {
                 i.raw
@@ -1340,7 +1325,7 @@ impl eframe::App for App {
             session.poll();
             self.dock.refresh_primary(session);
             if !was && session.exited {
-                self.status = "Shell exited / output remains available to copy".into();
+                self.status = "Session ended. You can still copy its output.".into();
             }
         }
         if let Some(bridge) = &mut self.bridge {
@@ -1363,43 +1348,72 @@ impl eframe::App for App {
                 Err(e) => self.status = format!("UI protocol: {e}"),
             }
         }
-        let preset = self.appearance_edit.preset;
         let top = &self.appearance_edit.top_background;
         let side = &self.appearance_edit.side_background;
-        self.top_background
-            .update(ctx, crate::bar_background::Bar::Top, preset, top);
-        self.side_background
-            .update(ctx, crate::bar_background::Bar::Side, preset, side);
+        self.top_background.update(ctx, top);
+        self.side_background.update(ctx, side);
+        let gradient = self.appearance_edit.gradient;
+        crate::theme::paint_gradient(ctx, gradient, self.options.light);
+        let bar_fill = if gradient.is_some() {
+            egui::Color32::TRANSPARENT
+        } else {
+            crate::chrome::workspace_fill(self.options.light)
+        };
+        let sidebar_fill = if gradient.is_some() {
+            egui::Color32::from_black_alpha(24)
+        } else {
+            crate::chrome::sidebar_fill(self.options.light)
+        };
+        let compact = ctx.screen_rect().width() < 940.0;
+        let graphical_app = self.page == 2
+            || (self.page == 1 && self.dock.has_graphical_view(self.session.as_ref()));
+        let sidebar_width = (self.options.embedded_source.is_none() && !graphical_app)
+            .then_some(if compact { 68.0 } else { 188.0 });
         egui::TopBottomPanel::top("navigation")
             .show_separator_line(false)
-            .frame(
-                egui::Frame::NONE
-                    .fill(if self.options.light {
-                        Color32::from_gray(245)
-                    } else {
-                        Color32::from_gray(20)
-                    })
-                    .inner_margin(egui::Margin::symmetric(20, 10)),
-            )
+            .frame(crate::chrome::frame(self.options.light).fill(bar_fill))
             .show(ctx, |ui| {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Title(crate::APP_NAME.into()));
+                let rail = ui.painter().add(egui::Shape::Noop);
                 let background = ui.painter().add(egui::Shape::Noop);
-                let header = ui.horizontal(|ui| {
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if crate::chrome::controls(ui) {
-                            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                        }
-                        crate::chrome::title(ui, crate::APP_NAME);
-                    });
+                let header = crate::chrome::row(ui, |ui| {
+                    if crate::chrome::controls(ui) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                    crate::chrome::title(ui, crate::APP_NAME);
                 });
-                self.top_background.paint(
-                    ui.painter(),
-                    background,
-                    header.response.rect.expand2(egui::vec2(20.0, 10.0)),
-                    preset,
-                    top,
-                );
+                let bounds = crate::chrome::bounds(header.response.rect);
+                if let Some(width) = sidebar_width {
+                    let rail_rect =
+                        egui::Rect::from_min_size(bounds.min, egui::vec2(width, bounds.height()));
+                    ui.painter()
+                        .set(rail, egui::Shape::rect_filled(rail_rect, 0, sidebar_fill));
+                }
+                self.top_background
+                    .paint(ui.painter(), background, bounds, top);
+                crate::chrome::divider(ui, bounds, sidebar_width);
             });
+        if let Some(sidebar_width) = sidebar_width {
+            egui::SidePanel::left("workspace_navigation")
+                .resizable(false)
+                .exact_width(sidebar_width)
+                .show_separator_line(false)
+                .frame(
+                    egui::Frame::NONE
+                        .inner_margin(egui::Margin::symmetric(12, 20))
+                        .fill(sidebar_fill),
+                )
+                .show(ctx, |ui| {
+                    let background = ui.painter().add(egui::Shape::Noop);
+                    let bounds = ui.max_rect().expand2(egui::vec2(12.0, 20.0));
+                    self.side_background.paint(
+                        ui.painter(),
+                        background,
+                        bounds,
+                        &self.appearance_edit.side_background,
+                    );
+                    self.workspace_navigation(ui, compact);
+                });
+        }
         egui::TopBottomPanel::bottom("status")
             .show_separator_line(false)
             .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(24, 12)))
@@ -1433,36 +1447,6 @@ impl eframe::App for App {
                 });
             return;
         }
-        let compact = ctx.screen_rect().width() < 940.0;
-        let graphical_app = self.page == 2
-            || (self.page == 1 && self.dock.has_graphical_view(self.session.as_ref()));
-        if !graphical_app {
-            egui::SidePanel::left("workspace_navigation")
-                .resizable(false)
-                .exact_width(if compact { 68.0 } else { 188.0 })
-                .show_separator_line(false)
-                .frame(
-                    egui::Frame::NONE
-                        .inner_margin(egui::Margin::symmetric(12, 20))
-                        .fill(if self.options.light {
-                            Color32::from_rgb(243, 243, 243)
-                        } else {
-                            Color32::from_rgb(22, 22, 22)
-                        }),
-                )
-                .show(ctx, |ui| {
-                    let background = ui.painter().add(egui::Shape::Noop);
-                    let bounds = ui.max_rect().expand2(egui::vec2(12.0, 20.0));
-                    self.side_background.paint(
-                        ui.painter(),
-                        background,
-                        bounds,
-                        preset,
-                        &self.appearance_edit.side_background,
-                    );
-                    self.workspace_navigation(ui, compact);
-                });
-        }
         egui::CentralPanel::default()
             .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(28, 24)))
             .show(ctx, |ui| match self.page {
@@ -1476,7 +1460,7 @@ impl eframe::App for App {
                     self.terminal_page(ui);
                 }
                 2 => {
-                    egui::ScrollArea::both().show(ui, |ui| self.framework(ui));
+                    egui::ScrollArea::both().show(ui, |ui| self.embedded_view(ui));
                 }
                 3 => {
                     if let Some(args) = self.connections.show(ui, self.launcher.root()) {
@@ -1529,7 +1513,37 @@ impl eframe::App for App {
         }
         if self.file_picker.open {
             if let Some(path) = self.file_picker.show(ctx) {
-                if self.shell_picker_file {
+                if self.file_picker.theme_save() {
+                    self.status = match crate::appearance::Theme::save(&self.appearance_edit, &path)
+                    {
+                        Ok(()) => format!("Theme saved to {}", crate::history::display_path(&path)),
+                        Err(error) => format!("Could not save theme: {error}"),
+                    };
+                } else if self.file_picker.theme_import() {
+                    let imported = crate::appearance::Theme::load(&path)
+                        .and_then(|theme| theme.appearance(&self.appearance));
+                    match imported {
+                        Ok(appearance) => {
+                            match appearance
+                                .commit(ctx, &self.options.state.with_file_name("appearance.json"))
+                            {
+                                Ok(message) => {
+                                    self.options.light = appearance.light;
+                                    self.options.accent = appearance.accent;
+                                    crate::theme::apply(ctx, appearance.light, appearance.accent);
+                                    self.appearance_edit = appearance.clone();
+                                    self.appearance = appearance;
+                                    self.accent_save_pending = false;
+                                    self.status = format!("Theme imported. {message}");
+                                }
+                                Err(error) => {
+                                    self.status = format!("Could not apply theme: {error}")
+                                }
+                            }
+                        }
+                        Err(error) => self.status = format!("Could not import theme: {error}"),
+                    }
+                } else if self.shell_picker_file {
                     self.custom_shells.set_executable(&path);
                 } else {
                     match self.bar_picker {
@@ -1558,6 +1572,7 @@ impl eframe::App for App {
                 self.options.light,
                 self.appearance.terminal_size,
                 &self.bindings,
+                self.appearance.gradient,
             );
         }
         if !self.dock.message.is_empty() {

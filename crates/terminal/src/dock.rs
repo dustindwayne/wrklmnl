@@ -606,7 +606,7 @@ impl Dock {
                     .fill(ctx.style().visuals.window_fill),
             )
             .show(ctx, |ui| {
-                ui.label("This will end the shell and its running processes.");
+                ui.label("This will end the selected session.");
                 ui.horizontal(|ui| {
                     accept = crate::widgets::button(ui, "End session").clicked();
                     cancel = crate::widgets::button(ui, "Keep running").clicked();
@@ -740,6 +740,7 @@ impl Dock {
         light: bool,
         size: f32,
         bindings: &crate::keybindings::Bindings,
+        gradient: Option<crate::theme::Gradient>,
     ) {
         let mut returned = vec![];
         for id in self.floating.clone() {
@@ -752,28 +753,34 @@ impl Dock {
                     .with_inner_size([900.0, 620.0]),
                 |ctx, _| {
                     self.handle(ctx, primary, bindings);
-                    egui::CentralPanel::default()
-                        .frame(egui::Frame::NONE.inner_margin(16.0).fill(if light {
-                            egui::Color32::from_rgb(250, 250, 250)
-                        } else {
-                            egui::Color32::from_rgb(17, 17, 17)
-                        }))
+                    crate::theme::paint_gradient(ctx, gradient, light);
+                    let fill = if gradient.is_some() {
+                        egui::Color32::TRANSPARENT
+                    } else {
+                        crate::chrome::workspace_fill(light)
+                    };
+                    egui::TopBottomPanel::top("detached_title")
+                        .show_separator_line(false)
+                        .frame(crate::chrome::frame(light).fill(fill))
                         .show(ctx, |ui| {
-                            ui.horizontal(|ui| {
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if crate::chrome::controls(ui) {
-                                            self.pending = Some((id, false));
-                                        }
-                                        if crate::widgets::button(ui, "Dock").clicked() {
-                                            returned.push(id);
-                                        }
-                                        crate::chrome::title(ui, crate::APP_NAME);
-                                    },
-                                );
+                            let header = crate::chrome::row(ui, |ui| {
+                                if crate::chrome::controls(ui) {
+                                    self.pending = Some((id, false));
+                                }
+                                if crate::widgets::button(ui, "Dock").clicked() {
+                                    returned.push(id);
+                                }
+                                crate::chrome::title(ui, crate::APP_NAME);
                             });
-                            ui.add_space(12.0);
+                            crate::chrome::divider(
+                                ui,
+                                crate::chrome::bounds(header.response.rect),
+                                None,
+                            );
+                        });
+                    egui::CentralPanel::default()
+                        .frame(egui::Frame::NONE.inner_margin(16.0).fill(fill))
+                        .show(ctx, |ui| {
                             ui.push_id(id, |ui| {
                                 let session = if id == 0 {
                                     Some(&mut *primary)
@@ -1020,7 +1027,7 @@ fn draw(
                     if let Some(session) = session {
                         session.interaction.active = *active == *id;
                         if session.exited {
-                            ui.label("Shell exited / Restart or Close");
+                            ui.label("Session ended. Close or restart it.");
                         }
                         if let Err(e) = crate::terminal::draw(ui, session, light, size) {
                             actions.push(Action::Error(format!("Terminal: {e}")));

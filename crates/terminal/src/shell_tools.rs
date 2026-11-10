@@ -97,8 +97,7 @@ pub fn arguments(shell: &str, args: &[String]) -> Vec<String> {
             out.push("-NoExit".into());
         }
         let mut script = String::new();
-        if let Some(exe) = conda() {
-            let root = exe.parent().and_then(Path::parent).unwrap();
+        if let Some(root) = conda().and_then(|exe| exe.parent()?.parent().map(Path::to_path_buf)) {
             let hook = root.join("shell/condabin/conda-hook.ps1");
             if hook.is_file() {
                 script.push_str(&format!(". {}; ", quote_ps(&hook)));

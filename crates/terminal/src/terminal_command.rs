@@ -89,7 +89,12 @@ impl Line {
         }
     }
     pub fn replacement(&mut self, old: &str, new: &str, new_cursor: usize) -> Option<Vec<u8>> {
-        if !self.valid || self.text != old || new.contains(['\r', '\n', '\x1b']) {
+        if !self.valid
+            || self.text != old
+            || !old.is_char_boundary(self.cursor)
+            || !new.is_char_boundary(new_cursor)
+            || new.contains(['\r', '\n', '\x1b'])
+        {
             return None;
         }
         let old_cursor = self.cursor;
@@ -110,7 +115,7 @@ impl Line {
         for _ in old[prefix..].chars() {
             bytes.extend_from_slice(b"\x1b[3~");
         }
-        bytes.extend_from_slice(new[prefix..].as_bytes());
+        bytes.extend_from_slice(&new.as_bytes()[prefix..]);
         for _ in new[new_cursor..].chars() {
             bytes.extend_from_slice(b"\x1b[D");
         }
@@ -302,6 +307,20 @@ mod tests {
         let bytes = line.replacement("Get-Chil", "Get-ChildItem", 13).unwrap();
         assert!(bytes.ends_with(b"dItem"));
         assert_eq!(line.text, "Get-ChildItem");
+    }
+    #[test]
+    fn completion_rejects_invalid_utf8_cursor_positions() {
+        let mut line = Line {
+            valid: true,
+            text: "é".into(),
+            cursor: 2,
+            ..Default::default()
+        };
+        assert!(line.replacement("é", "été", 1).is_none());
+        assert!(line.replacement("é", "été", 99).is_none());
+        assert_eq!(line.text, "é");
+        line.cursor = 1;
+        assert!(line.replacement("é", "été", 5).is_none());
     }
     #[test]
     fn input_is_not_a_second_buffer() {

@@ -6,7 +6,7 @@ The GitHub workflow builds Windows x64. The same checkout has native source-buil
 
 ### Windows
 
-Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The [Windows workflow](.github/workflows/windows.yml) tests and builds the x64 release executable using Rust 1.99.1.
+Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The [Windows workflow](../.github/workflows/windows.yml) tests and builds the x64 release executable using Rust 1.99.1.
 
 ```powershell
 cargo test --locked --workspace

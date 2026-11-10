@@ -42,3 +42,13 @@ jobs:
           path: dist/RUST-STDLIB-NOTICES.html
           archive: false
           if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/serialport-4.10.1.crate
+          archive: false
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          path: dist/option-ext-0.2.0.crate
+          archive: false
+          if-no-files-found: error

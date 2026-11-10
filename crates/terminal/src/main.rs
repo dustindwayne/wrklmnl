@@ -23,6 +23,7 @@ mod installed_icon;
 mod keybindings;
 mod launcher;
 mod licenses;
+mod media_player;
 mod persistence;
 mod pixel_surface;
 mod preview_edit;
@@ -210,8 +211,7 @@ impl Options {
                     break;
                 }
                 "--help" => {
-                    println!("WRKLMNL [FILE] [--open FILE] [--terminal]\n--list-shells: detected shell launch choices as JSON.");
-                    println!("WRKLMNL [--session FOLDER] [--shell PROGRAM] [--light] [--accent RRGGBB]\n  [--state-file FILE] [--ui FILE] [--data JSON_FILE] [--demo]\n  [--run-ui FILE] [--appearance] [--keybindings] [--font FILE] [--font-size N] [--ui-program PROGRAM --ui-arg ARG ...] [-- SHELL_ARGS]\nNo arguments: recent-location dashboard. + opens another window.\n--check-ui FILE: validate; --emit-ui FILE: compile to JSON.\n--self-check: headless PTY and two-way UI integration check.\n--licenses: third-party notices.");
+                    println!("WRKLMNL [FILE]\nOpen WRKLMNL to show the Dashboard.\nOpen a file with WRKLMNL to edit it.");
                     std::process::exit(0);
                 }
                 "--open" => {
@@ -235,8 +235,8 @@ impl Options {
 }
 
 pub fn demo_view(name: &str) -> View {
-    View::new("hello", "UI framework")
-        .text("DEMO / Sample data. Actions update this view; they do not execute shell commands.")
+    View::new("hello", "Sample view")
+        .text("Sample content for the UI integration check.")
         .heading(format!("Hello, {name}"))
         .input("name", "Name", name)
         .action("greet", "Update greeting")

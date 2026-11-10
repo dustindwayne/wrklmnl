@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "light": false,
+  "accent": [
+    230,
+    174,
+    130
+  ],
+  "ui_size": 15.0,
+  "terminal_size": 15.0,
+  "syntax": true,
+  "gradient": "ember"
+}

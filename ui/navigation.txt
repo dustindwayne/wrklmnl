@@ -1,6 +1,5 @@
 col:8[
-  t:"Workspace"
-  > item[ico:home > Dashboard@page_0]
+  item[ico:home > Dashboard@page_0]
   > item[ico:terminal > Terminals@page_1]
   > item[ico:grid > Connections@page_3]
   > item[ico:folder > Files@page_7]

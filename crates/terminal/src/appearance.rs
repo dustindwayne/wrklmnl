@@ -1,6 +1,10 @@
 use eframe::egui::{self, FontData, FontDefinitions, FontFamily, FontId, TextStyle};
 use serde::{Deserialize, Serialize};
-use std::{path::Path, sync::Arc};
+use std::{
+    io::{Read, Write},
+    path::Path,
+    sync::Arc,
+};
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -12,7 +16,7 @@ pub struct Appearance {
     pub syntax: bool,
     pub light: bool,
     pub accent: [u8; 3],
-    pub preset: crate::bar_background::Preset,
+    pub gradient: Option<crate::theme::Gradient>,
     pub top_background: crate::bar_background::Settings,
     pub side_background: crate::bar_background::Settings,
 }
@@ -26,7 +30,7 @@ impl Default for Appearance {
             syntax: true,
             light: false,
             accent: [182, 182, 178],
-            preset: Default::default(),
+            gradient: None,
             top_background: Default::default(),
             side_background: Default::default(),
         }
@@ -53,6 +57,12 @@ impl Appearance {
             self.terminal_size.is_finite() && (10.0..=36.0).contains(&self.terminal_size),
             "Terminal text size must be 10-36"
         );
+        for background in [&self.top_background, &self.side_background] {
+            anyhow::ensure!(
+                background.intensity.is_finite() && (0.0..=0.35).contains(&background.intensity),
+                "Background intensity must be between 0 and 35 percent"
+            );
+        }
         Ok(())
     }
     pub fn apply(&self, ctx: &egui::Context) -> anyhow::Result<()> {
@@ -72,7 +82,7 @@ impl Appearance {
                     "Font exceeds 16 MiB"
                 );
                 let bytes = std::fs::read(path)?;
-                ab_glyph::FontArc::try_from_vec(bytes.clone())
+                ab_glyph::FontRef::try_from_slice(&bytes)
                     .map_err(|_| anyhow::anyhow!("Invalid font"))?;
                 Ok(bytes)
             })() {
@@ -112,7 +122,7 @@ impl Appearance {
         for (i, path) in candidates.iter().enumerate() {
             if std::fs::metadata(path).is_ok_and(|m| m.len() <= 40 * 1024 * 1024) {
                 if let Ok(bytes) = std::fs::read(path) {
-                    if ab_glyph::FontArc::try_from_vec(bytes.clone()).is_ok() {
+                    if ab_glyph::FontRef::try_from_slice(&bytes).is_ok() {
                         let name = format!("system-fallback-{i}");
                         fonts
                             .font_data
@@ -155,7 +165,7 @@ impl Appearance {
         };
         if let Some(bytes) = bold_candidates.iter().find_map(|path| {
             let bytes = std::fs::read(path).ok()?;
-            ab_glyph::FontArc::try_from_vec(bytes.clone()).ok()?;
+            ab_glyph::FontRef::try_from_slice(&bytes).ok()?;
             Some(bytes)
         }) {
             fonts.font_data.insert(
@@ -274,16 +284,20 @@ impl Appearance {
     fn settings_section(&mut self, ui: &mut egui::Ui, section: u8) {
         match section {
             0 => {
-                use crate::bar_background::Preset;
-                ui.label(egui::RichText::new("Theme").strong());
-                crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("workspace_theme"))
-                    .selected_text(self.preset.label())
+                ui.label(egui::RichText::new("Background").strong());
+                crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("gradient_theme"))
+                    .selected_text(self.gradient.map_or("Solid", |gradient| gradient.label()))
                     .show_ui(ui, |ui| {
-                        for preset in [Preset::Basic, Preset::PixelTech] {
-                            ui.selectable_value(&mut self.preset, preset, preset.label());
+                        ui.selectable_value(&mut self.gradient, None, "Solid");
+                        for gradient in crate::theme::Gradient::ALL {
+                            ui.selectable_value(
+                                &mut self.gradient,
+                                Some(gradient),
+                                gradient.label(),
+                            );
                         }
                     });
-                ui.add_space(12.0);
+                ui.add_space(24.0);
                 ui.label(egui::RichText::new("Color mode").strong());
                 ui.horizontal(|ui| {
                     ui.selectable_value(&mut self.light, false, "Dark");
@@ -291,13 +305,6 @@ impl Appearance {
                 });
                 ui.add_space(28.0);
                 ui.label(egui::RichText::new("Accent color").strong());
-                ui.label(
-                    egui::RichText::new(
-                        "Selection, focus, and primary actions. Accent changes save automatically.",
-                    )
-                    .small()
-                    .color(ui.visuals().weak_text_color()),
-                );
                 ui.add_space(12.0);
                 ui.horizontal(|ui| {
                     ui.color_edit_button_srgb(&mut self.accent);
@@ -429,6 +436,72 @@ impl Appearance {
             });
     }
 }
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Theme {
+    version: u8,
+    light: bool,
+    accent: [u8; 3],
+    ui_size: f32,
+    terminal_size: f32,
+    syntax: bool,
+    #[serde(default)]
+    gradient: Option<crate::theme::Gradient>,
+}
+
+impl Theme {
+    pub fn load(path: &Path) -> anyhow::Result<Self> {
+        const LIMIT: u64 = 4096;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path)?
+            .take(LIMIT + 1)
+            .read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() as u64 <= LIMIT, "Theme file exceeds 4 KiB");
+        let theme: Self = serde_json::from_slice(&bytes)?;
+        anyhow::ensure!(
+            theme.version == 1,
+            "Unsupported theme version {}",
+            theme.version
+        );
+        Ok(theme)
+    }
+
+    pub fn appearance(self, local: &Appearance) -> anyhow::Result<Appearance> {
+        let appearance = Appearance {
+            light: self.light,
+            accent: self.accent,
+            ui_size: self.ui_size,
+            terminal_size: self.terminal_size,
+            syntax: self.syntax,
+            gradient: self.gradient,
+            ..local.clone()
+        };
+        appearance.validate()?;
+        Ok(appearance)
+    }
+
+    pub fn save(appearance: &Appearance, path: &Path) -> anyhow::Result<()> {
+        appearance.validate()?;
+        let bytes = serde_json::to_vec_pretty(&Self {
+            version: 1,
+            light: appearance.light,
+            accent: appearance.accent,
+            ui_size: appearance.ui_size,
+            terminal_size: appearance.terminal_size,
+            syntax: appearance.syntax,
+            gradient: appearance.gradient,
+        })?;
+        let mut file = std::fs::File::create_new(path)?;
+        let result = file.write_all(&bytes).and_then(|()| file.sync_all());
+        drop(file);
+        if let Err(error) = result {
+            let _ = std::fs::remove_file(path);
+            return Err(error.into());
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -447,6 +520,68 @@ mod tests {
         }
         .validate()
         .is_err());
+    }
+
+    #[test]
+    fn theme_round_trip_keeps_local_assets_and_protects_existing_files() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("theme.json");
+        let source = Appearance {
+            accent: [194, 156, 120],
+            ui_size: 20.0,
+            light: true,
+            ui_font: "source-private-font.ttf".into(),
+            gradient: Some(crate::theme::Gradient::Prism),
+            ..Default::default()
+        };
+        Theme::save(&source, &path)?;
+        let bytes = std::fs::read(&path)?;
+        assert!(!String::from_utf8_lossy(&bytes).contains("source-private-font"));
+        assert!(Theme::save(&Appearance::default(), &path).is_err());
+        assert_eq!(std::fs::read(&path)?, bytes);
+        let mut local = Appearance {
+            ui_font: "local-font.ttf".into(),
+            ..Default::default()
+        };
+        local.top_background.choose("local-background.png".into());
+        let imported = Theme::load(&path)?.appearance(&local)?;
+        assert_eq!(imported.accent, source.accent);
+        assert_eq!(imported.ui_size, source.ui_size);
+        assert_eq!(imported.light, source.light);
+        assert_eq!(imported.gradient, source.gradient);
+        assert_eq!(imported.ui_font, local.ui_font);
+        assert_eq!(imported.top_background.path, local.top_background.path);
+        Ok(())
+    }
+
+    #[test]
+    fn theme_import_rejects_invalid_and_oversized_files() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let path = folder.path().join("theme.json");
+        Theme::save(&Appearance::default(), &path)?;
+        let original = std::fs::read_to_string(&path)?;
+        std::fs::write(&path, original.replace("\"version\": 1", "\"version\": 2"))?;
+        assert!(Theme::load(&path).is_err());
+        std::fs::write(
+            &path,
+            original.replace("\"ui_size\": 15.0", "\"ui_size\": 1.0"),
+        )?;
+        assert!(Theme::load(&path)?
+            .appearance(&Appearance::default())
+            .is_err());
+        std::fs::write(&path, vec![b' '; 4097])?;
+        assert!(Theme::load(&path).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn retired_preset_settings_load_with_local_images() -> anyhow::Result<()> {
+        let appearance: Appearance = serde_json::from_str(
+            r#"{"preset":"pixel_tech","top_background":{"path":"custom.png","use_builtin":true}}"#,
+        )?;
+        appearance.validate()?;
+        assert_eq!(appearance.top_background.path, Some("custom.png".into()));
+        Ok(())
     }
 }
 

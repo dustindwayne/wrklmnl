@@ -13,6 +13,7 @@ pub struct Picker {
     selected: Option<PathBuf>,
     entries: Vec<(bool, String, PathBuf)>,
     mode: Mode,
+    filename: String,
 }
 
 #[derive(Default, PartialEq, Eq)]
@@ -21,9 +22,31 @@ enum Mode {
     File,
     Image,
     Executable,
+    ThemeImport,
+    ThemeSave,
 }
 
 impl Picker {
+    pub fn start_theme(&mut self, folder: PathBuf, save: bool) {
+        self.filename = "my-theme.json".into();
+        self.begin(
+            folder,
+            if save {
+                Mode::ThemeSave
+            } else {
+                Mode::ThemeImport
+            },
+        );
+    }
+
+    pub fn theme_save(&self) -> bool {
+        self.mode == Mode::ThemeSave
+    }
+
+    pub fn theme_import(&self) -> bool {
+        self.mode == Mode::ThemeImport
+    }
+
     pub fn start(&mut self, folder: PathBuf) {
         self.begin(folder, Mode::File);
     }
@@ -108,6 +131,8 @@ impl Picker {
                     Mode::Image => "Choose a background image",
                     Mode::Executable => "Choose a shell executable",
                     Mode::File => "Open a text or code file",
+                    Mode::ThemeImport => "Import a theme",
+                    Mode::ThemeSave => "Save a theme",
                 });
                 ui.horizontal(|ui| {
                     if button(ui, Icon::Up, "Parent folder").clicked() {
@@ -190,7 +215,7 @@ impl Picker {
                                     next_folder = Some(path.clone());
                                 } else {
                                     self.selected = Some(path.clone());
-                                    if row.double_clicked() {
+                                    if row.double_clicked() && self.mode != Mode::ThemeSave {
                                         chosen = Some(path.clone());
                                     }
                                 }
@@ -207,8 +232,21 @@ impl Picker {
                     ui.colored_label(ui.visuals().error_fg_color, &self.error);
                 }
                 ui.separator();
+                if self.mode == Mode::ThemeSave {
+                    ui.label("Theme filename");
+                    ui.add(
+                        egui::TextEdit::singleline(&mut self.filename)
+                            .desired_width(f32::INFINITY)
+                            .margin(egui::Margin::symmetric(10, 7)),
+                    );
+                    ui.weak("Choose a new .json filename. Existing files are protected.");
+                }
                 ui.horizontal(|ui| {
-                    if let Some(name) = self.selected.as_ref().and_then(|path| path.file_name()) {
+                    if self.mode == Mode::ThemeSave {
+                        ui.weak("Save in this folder");
+                    } else if let Some(name) =
+                        self.selected.as_ref().and_then(|path| path.file_name())
+                    {
                         let width = ui.available_width() * 0.55;
                         ui.add_sized(
                             [width, 0.0],
@@ -218,19 +256,35 @@ impl Picker {
                         ui.weak("Select a file");
                     }
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let label = if self.mode == Mode::Image {
-                            "Use image"
+                        let label = match self.mode {
+                            Mode::Image => "Use image",
+                            Mode::ThemeImport => "Import theme",
+                            Mode::ThemeSave => "Save theme",
+                            _ => "Open",
+                        };
+                        let save_name = self.filename.trim();
+                        let valid_name = !save_name.is_empty()
+                            && save_name.ends_with(".json")
+                            && !save_name
+                                .chars()
+                                .any(|c| c.is_control() || "/\\:*?\"<>|".contains(c));
+                        let enabled = if self.mode == Mode::ThemeSave {
+                            valid_name
                         } else {
-                            "Open"
+                            self.selected.is_some()
                         };
                         if ui
                             .add_enabled(
-                                self.selected.is_some(),
+                                enabled,
                                 egui::Button::new(label).fill(ui.visuals().selection.bg_fill),
                             )
                             .clicked()
                         {
-                            chosen = self.selected.clone();
+                            chosen = if self.mode == Mode::ThemeSave {
+                                Some(self.folder.join(save_name))
+                            } else {
+                                self.selected.clone()
+                            };
                         }
                         cancelled = crate::widgets::button(ui, "Cancel").clicked();
                     });
@@ -245,6 +299,9 @@ impl Picker {
     fn accepts(&self, path: &std::path::Path) -> bool {
         match self.mode {
             Mode::File => true,
+            Mode::ThemeImport | Mode::ThemeSave => path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("json")),
             Mode::Executable => crate::custom_shells::is_executable(path),
             Mode::Image => path
                 .extension()

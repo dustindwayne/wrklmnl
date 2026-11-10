@@ -1,6 +1,6 @@
 # Portable drawing and controls
 
-`no_std`, dependency-free, allocation-free, unsafe-code-free Rust. This crate builds independently of the desktop terminal, designer, fonts, PTYs and JSON modules.
+`no_std`, dependency-free, allocation-free, unsafe-code-free Rust. This crate builds independently of the desktop app, fonts, PTYs and JSON modules.
 
 - Custom `Target` drivers; caller-owned RGB565 and packed monochrome buffers with validated strides.
 - Clipped pixels, lines, rectangles, circles and procedural vector icons.
@@ -10,7 +10,7 @@
 - Basic label/button/input/progress controls, focus, pointer/key dispatch and fixed-capacity UTF-8 input.
 - Anchored layout and damage-region tracking APIs.
 
-The shared `g[...]` UI component is validated by this parser and drawn through this rasterizer in desktop preview, live CLI graphics and exported desktop apps. Embedded applications can feed the same drawing-body instructions to `program::draw`, with their display and font adapters. The desktop UI container/parser/designer remains a separate std-based layer.
+The shared `g[...]` UI component is validated by this parser and drawn through this rasterizer. Embedded applications can feed the same drawing-body instructions to `program::draw`, with their display and font adapters. The desktop UI and parser use a separate std-based layer.
 
 ```text
 cargo check -p terminal-ui-graphics --no-default-features --locked

@@ -473,7 +473,7 @@ impl Dock {
                 if let Some(session) = self.session_mut(primary, active) {
                     session.interaction.active = true;
                     if session.exited {
-                        ui.label("Shell exited. Close or restart this tab.");
+                        ui.label("Session ended. Close or restart this tab.");
                     }
                     if let Err(error) = crate::terminal::draw(ui, session, light, size) {
                         actions.push(Action::Error(format!("Terminal: {error}")));

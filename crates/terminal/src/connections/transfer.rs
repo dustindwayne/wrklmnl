@@ -6,7 +6,7 @@ use russh_sftp::{
 };
 use std::{
     io::{ErrorKind, SeekFrom},
-    path::Path,
+    path::{Path, PathBuf},
     time::{Duration, Instant},
 };
 use tokio::{
@@ -19,6 +19,9 @@ pub enum Direction {
     Upload,
     Download,
 }
+
+const PARTIAL_SUFFIX: &str = ".wrklmnl.part";
+const LEGACY_PARTIAL_SUFFIX: &str = ".port-studio.part";
 
 pub async fn run(
     profile: &Ssh,
@@ -124,11 +127,19 @@ async fn upload(
     let initial = source.metadata().await?;
     ensure!(initial.is_file(), "Local source must be a regular file");
     let total = initial.len();
-    let partial = format!("{remote}.port-studio.part");
+    let mut partial = format!("{remote}{PARTIAL_SUFFIX}");
+    let mut partial_metadata = remote_partial_metadata(sftp, &partial).await?;
+    if partial_metadata.is_none() {
+        let legacy = format!("{remote}{LEGACY_PARTIAL_SUFFIX}");
+        if let Some(metadata) = remote_partial_metadata(sftp, &legacy).await? {
+            partial = legacy;
+            partial_metadata = Some(metadata);
+        }
+    }
     if sftp.try_exists(remote).await? {
         // A dropped connection can hide a successful rename response.
         ensure!(
-            retrying && !sftp.try_exists(&partial).await?,
+            retrying && partial_metadata.is_none(),
             "Remote destination already exists"
         );
         let mut destination = sftp.open(remote).await?;
@@ -140,20 +151,19 @@ async fn upload(
         progress(format!("Complete · {total} bytes"));
         return Ok(());
     }
-    let mut destination = match sftp.symlink_metadata(&partial).await {
-        Ok(attrs) => {
+    let mut destination = match partial_metadata {
+        Some(attrs) => {
             ensure!(attrs.is_regular(), "Remote partial must be a regular file");
             sftp.open_with_flags(&partial, OpenFlags::READ | OpenFlags::WRITE)
                 .await?
         }
-        Err(SftpError::Status(status)) if status.status_code == StatusCode::NoSuchFile => {
+        None => {
             sftp.open_with_flags(
                 &partial,
                 OpenFlags::READ | OpenFlags::WRITE | OpenFlags::CREATE | OpenFlags::EXCLUDE,
             )
             .await?
         }
-        Err(e) => return Err(e.into()),
     };
     let offset = destination
         .metadata()
@@ -183,6 +193,17 @@ async fn upload(
     Ok(())
 }
 
+async fn remote_partial_metadata(
+    sftp: &SftpSession,
+    path: &str,
+) -> Result<Option<russh_sftp::protocol::FileAttributes>> {
+    match sftp.symlink_metadata(path).await {
+        Ok(metadata) => Ok(Some(metadata)),
+        Err(SftpError::Status(status)) if status.status_code == StatusCode::NoSuchFile => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
 async fn download(
     sftp: &SftpSession,
     local: &Path,
@@ -197,21 +218,7 @@ async fn download(
     let initial = source.metadata().await?;
     let total = initial.size.context("Server omitted source file size")?;
     ensure!(initial.is_regular(), "Remote source must be a regular file");
-    let mut name = local.as_os_str().to_owned();
-    name.push(".port-studio.part");
-    let partial = std::path::PathBuf::from(name);
-    match fs::symlink_metadata(&partial).await {
-        Ok(attrs) => ensure!(attrs.is_file(), "Local partial must be a regular file"),
-        Err(e) if e.kind() == ErrorKind::NotFound => {}
-        Err(e) => return Err(e.into()),
-    }
-    let mut destination = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .truncate(false)
-        .open(&partial)
-        .await?;
+    let (partial, mut destination) = open_local_partial(local).await?;
     let offset = destination.metadata().await?.len();
     ensure!(offset <= total, "Local partial is larger than the source");
     verify_prefix(&mut source, &mut destination, offset).await?;
@@ -231,6 +238,38 @@ async fn download(
     }
     progress(format!("Complete · {total} bytes"));
     Ok(())
+}
+
+async fn open_local_partial(destination: &Path) -> Result<(PathBuf, File)> {
+    let mut preferred = None;
+    for suffix in [PARTIAL_SUFFIX, LEGACY_PARTIAL_SUFFIX] {
+        let mut path = destination.as_os_str().to_owned();
+        path.push(suffix);
+        let path = PathBuf::from(path);
+        match fs::symlink_metadata(&path).await {
+            Ok(attrs) => {
+                ensure!(attrs.is_file(), "Local partial must be a regular file");
+                let file = OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&path)
+                    .await?;
+                return Ok((path, file));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {
+                preferred.get_or_insert(path);
+            }
+            Err(error) => return Err(error.into()),
+        }
+    }
+    let path = preferred.context("Missing partial file path")?;
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create_new(true)
+        .open(&path)
+        .await?;
+    Ok((path, file))
 }
 
 async fn verify_prefix(
@@ -323,5 +362,46 @@ fn retryable_sftp(error: &SftpError) -> bool {
             StatusCode::NoConnection | StatusCode::ConnectionLost
         ),
         _ => false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn partial_files_use_current_name_and_resume_legacy_downloads() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let destination = directory.path().join("download.txt");
+        let (path, file) = open_local_partial(&destination).await?;
+        assert_eq!(path.file_name().unwrap(), "download.txt.wrklmnl.part");
+        drop(file);
+        fs::remove_file(path).await?;
+
+        let legacy = directory.path().join("download.txt.port-studio.part");
+        fs::write(&legacy, b"existing prefix").await?;
+        let (path, mut file) = open_local_partial(&destination).await?;
+        assert_eq!(path, legacy);
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).await?;
+        assert_eq!(bytes, b"existing prefix");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn existing_current_partial_takes_precedence() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let destination = directory.path().join("download.txt");
+        let current = directory.path().join("download.txt.wrklmnl.part");
+        fs::write(&current, b"current prefix").await?;
+        fs::write(
+            directory.path().join("download.txt.port-studio.part"),
+            b"legacy prefix",
+        )
+        .await?;
+        let (path, file) = open_local_partial(&destination).await?;
+        assert_eq!(path, current);
+        assert_eq!(file.metadata().await?.len(), 14);
+        Ok(())
     }
 }

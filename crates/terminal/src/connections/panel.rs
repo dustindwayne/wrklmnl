@@ -42,24 +42,25 @@ impl Panel {
 
     fn save_profile(&self) -> anyhow::Result<()> {
         let path = config::default_path()?;
-        let mut settings = config::Settings::load(&path)?;
         let (host, user, port) = self.connection_details()?;
         let key = self.profile.trim().to_owned();
-        let known_hosts = settings
-            .ssh
-            .get(&key)
-            .and_then(|profile| profile.known_hosts.clone());
-        settings.ssh.insert(
-            key,
-            config::Ssh {
-                host: host.into(),
-                user: user.unwrap_or_default().into(),
-                port,
-                identity: (!self.identity.trim().is_empty()).then(|| self.identity.trim().into()),
-                known_hosts,
-            },
-        );
-        settings.save(&path)
+        config::Settings::update(&path, |settings| {
+            let known_hosts = settings
+                .ssh
+                .get(&key)
+                .and_then(|profile| profile.known_hosts.clone());
+            settings.ssh.insert(
+                key,
+                config::Ssh {
+                    host: host.into(),
+                    user: user.unwrap_or_default().into(),
+                    port,
+                    identity: (!self.identity.trim().is_empty())
+                        .then(|| self.identity.trim().into()),
+                    known_hosts,
+                },
+            );
+        })
     }
 
     fn update(&mut self, ui: &egui::Ui) {
@@ -137,6 +138,10 @@ impl Panel {
                 }
                 Err(error) => self.error = error.to_string(),
             }
+            match config::default_path().and_then(|path| config::Settings::load(&path)) {
+                Ok(settings) => self.saved = Some(settings),
+                Err(error) => self.error = format!("Could not read saved connections: {error:#}"),
+            }
         }
     }
 
@@ -207,7 +212,7 @@ impl Panel {
                         ui.weak("SAVED SSH");
                         for name in settings.ssh.keys().take(8) {
                             if ui.button(name).clicked() {
-                                args = Some(vec!["ssh".into(), "--profile".into(), name.clone()]);
+                                args = Some(saved_ssh_args(name));
                                 ui.close_menu();
                             }
                         }
@@ -306,7 +311,7 @@ impl Panel {
                         self.profile = (*name).clone();
                     }
                     if response.double_clicked() || (response.has_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
-                        args = Some(vec!["ssh".into(), "--profile".into(), (*name).clone()]);
+                        args = Some(saved_ssh_args(name));
                     }
                 });
                 if let Some((name, profile)) = self.selected_ssh.as_ref().and_then(|name| settings.ssh.get_key_value(name)) {
@@ -520,7 +525,7 @@ impl Panel {
                                 .on_hover_text("Open saved SSH profile")
                                 .clicked()
                             {
-                                result = Some(vec!["ssh".into(), "--profile".into(), name.clone()]);
+                                result = Some(saved_ssh_args(name));
                             }
                             ui.weak(format!("{}:{}", profile.host, profile.port));
                         });
@@ -632,6 +637,10 @@ impl Panel {
     }
 }
 
+fn saved_ssh_args(name: &str) -> Vec<String> {
+    vec!["ssh".into(), format!("--profile={name}")]
+}
+
 // Stored history always includes a port, including entries written before IPv6 brackets.
 fn recent_endpoint(endpoint: &str) -> String {
     let (user, address) = endpoint
@@ -714,7 +723,12 @@ fn parse_endpoint(input: &str, telnet: bool) -> anyhow::Result<(&str, Option<&st
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_endpoint, recent_endpoint};
+    use super::{parse_endpoint, recent_endpoint, saved_ssh_args};
+
+    #[test]
+    fn profile_names_are_passed_as_option_values() {
+        assert_eq!(saved_ssh_args("-lab"), ["ssh", "--profile=-lab"]);
+    }
 
     #[test]
     fn quick_connect_addresses_use_protocol_defaults_and_accept_ipv6() {

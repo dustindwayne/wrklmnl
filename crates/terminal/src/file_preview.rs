@@ -1,3 +1,4 @@
+use crate::launcher::FileType;
 use eframe::egui;
 use std::{
     fs,
@@ -12,6 +13,7 @@ const ITEM_LIMIT: usize = 160;
 struct FolderItem {
     path: PathBuf,
     directory: bool,
+    modified: Option<std::time::SystemTime>,
 }
 
 enum Content {
@@ -21,6 +23,7 @@ enum Content {
     Json(serde_json::Value),
     Image(egui::ColorImage, (u32, u32)),
     Binary(String),
+    Media,
     Link,
 }
 
@@ -40,9 +43,11 @@ pub enum Action {
 pub struct Preview {
     path: PathBuf,
     trail: Vec<PathBuf>,
+    filter: FileType,
     pending: mpsc::Receiver<anyhow::Result<Loaded>>,
     loaded: Option<anyhow::Result<Loaded>>,
     texture: Option<egui::TextureHandle>,
+    media: Option<crate::media_player::Player>,
     expanded: bool,
     larger_image: bool,
     draft: Option<crate::preview_edit::Draft>,
@@ -52,15 +57,23 @@ pub struct Preview {
 impl Preview {
     pub fn new(path: PathBuf, ctx: &egui::Context, expanded: bool) -> Self {
         Self {
-            pending: request(path.clone(), ctx),
+            pending: request(path.clone(), FileType::All, ctx),
             path,
             trail: Vec::new(),
+            filter: FileType::All,
             loaded: None,
             texture: None,
+            media: None,
             expanded,
             larger_image: false,
             draft: None,
             edit_status: String::new(),
+        }
+    }
+
+    pub fn pause_media(&mut self) {
+        if let Some(media) = &mut self.media {
+            media.pause();
         }
     }
 
@@ -75,10 +88,11 @@ impl Preview {
     }
 
     fn change(&mut self, path: PathBuf, ctx: &egui::Context) {
-        self.pending = request(path.clone(), ctx);
+        self.pending = request(path.clone(), self.filter, ctx);
         self.path = path;
         self.loaded = None;
         self.texture = None;
+        self.media = None;
         self.larger_image = false;
         self.draft = None;
         self.edit_status.clear();
@@ -106,7 +120,13 @@ impl Preview {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<Action> {
+    pub fn show(&mut self, ui: &mut egui::Ui, filter: FileType) -> Option<Action> {
+        if self.filter != filter {
+            self.filter = filter;
+            if self.path.is_dir() {
+                self.change(self.path.clone(), ui.ctx());
+            }
+        }
         use crate::icons::{button, Icon};
         if self.loaded.is_none() {
             match self.pending.try_recv() {
@@ -200,9 +220,9 @@ impl Preview {
         let can_inline_edit = matches!(
             &self.loaded,
             Some(Ok(Loaded {
-                content: Content::Text(_, false),
-                ..
-            }))
+                content: Content::Text(_, false) | Content::Json(..) | Content::Table(..),
+                size: Some(size),
+            })) if *size <= BYTE_LIMIT
         );
         let can_open_editor = matches!(
             &self.loaded,
@@ -271,7 +291,11 @@ impl Preview {
                     Content::Folder(items, more) => {
                         ui.spacing_mut().item_spacing.y = 3.0;
                         if items.is_empty() {
-                            ui.weak("This folder is empty.");
+                            ui.weak(if filter == FileType::All {
+                                "This folder is empty."
+                            } else {
+                                "No items match this type."
+                            });
                         }
                         for item in items {
                             let response = folder_row(ui, item);
@@ -353,6 +377,13 @@ impl Preview {
                             size *= (ui.available_width() / size.x).clamp(0.02, 1.0);
                         }
                         ui.image((texture.id(), size));
+                    }
+                    Content::Media => {
+                        self.media
+                            .get_or_insert_with(|| {
+                                crate::media_player::Player::new(self.path.clone(), ui.ctx())
+                            })
+                            .show(ui);
                     }
                     Content::Binary(bytes) => {
                         ui.weak("File header · hexadecimal");
@@ -487,11 +518,15 @@ fn text_preview(path: &Path, text: &str, more: bool) -> Content {
     Content::Text(text.to_owned(), more)
 }
 
-fn request(path: PathBuf, ctx: &egui::Context) -> mpsc::Receiver<anyhow::Result<Loaded>> {
+fn request(
+    path: PathBuf,
+    filter: FileType,
+    ctx: &egui::Context,
+) -> mpsc::Receiver<anyhow::Result<Loaded>> {
     let (tx, rx) = mpsc::channel();
     let ctx = ctx.clone();
     std::thread::spawn(move || {
-        let _ = tx.send(read(&path));
+        let _ = tx.send(read_filtered(&path, filter));
         ctx.request_repaint();
     });
     rx
@@ -535,7 +570,7 @@ fn decode_image(
     Ok((image, dimensions))
 }
 
-fn read(path: &Path) -> anyhow::Result<Loaded> {
+fn read_filtered(path: &Path, filter: FileType) -> anyhow::Result<Loaded> {
     let metadata = fs::symlink_metadata(path)?;
     let size = metadata.is_file().then_some(metadata.len());
     let content = if metadata.is_symlink() || crate::file_properties::is_reparse_point(&metadata) {
@@ -544,27 +579,51 @@ fn read(path: &Path) -> anyhow::Result<Loaded> {
         let mut items = Vec::new();
         let mut more = false;
         for entry in fs::read_dir(path)? {
-            if items.len() == ITEM_LIMIT {
+            let entry = entry?;
+            let path = entry.path();
+            let directory = entry.file_type()?.is_dir();
+            if !filter.matches(&path, directory) {
+                continue;
+            }
+            if filter == FileType::All && items.len() == ITEM_LIMIT {
                 more = true;
                 break;
             }
-            let entry = entry?;
+            let modified = (filter != FileType::All)
+                .then(|| {
+                    entry
+                        .metadata()
+                        .and_then(|metadata| metadata.modified())
+                        .ok()
+                })
+                .flatten();
             items.push(FolderItem {
-                path: entry.path(),
-                directory: entry.file_type()?.is_dir(),
+                path,
+                directory,
+                modified,
             });
         }
-        items.sort_by_key(|item| {
-            (
-                !item.directory,
-                item.path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_lowercase(),
-            )
-        });
+        if filter == FileType::All {
+            items.sort_by_key(|item| {
+                (
+                    !item.directory,
+                    item.path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_lowercase(),
+                )
+            });
+        } else {
+            items.sort_by(|a, b| b.modified.cmp(&a.modified).then(a.path.cmp(&b.path)));
+            more = items.len() > ITEM_LIMIT;
+            items.truncate(ITEM_LIMIT);
+        }
         Content::Folder(items, more)
+    } else if metadata.is_file()
+        && (FileType::Audio.matches(path, false) || FileType::Video.matches(path, false))
+    {
+        Content::Media
     } else if metadata.is_file() {
         let mut file = fs::File::open(path)?;
         let mut data = Vec::new();
@@ -612,6 +671,10 @@ fn read(path: &Path) -> anyhow::Result<Loaded> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn read(path: &Path) -> anyhow::Result<Loaded> {
+        read_filtered(path, FileType::All)
+    }
 
     #[test]
     fn renaming_a_folder_keeps_the_preview_and_back_path_current() -> anyhow::Result<()> {

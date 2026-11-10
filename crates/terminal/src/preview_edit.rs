@@ -73,13 +73,13 @@ impl Draft {
 }
 
 #[cfg(not(windows))]
-fn replace(path: &Path, file: tempfile::NamedTempFile) -> Result<()> {
+pub(crate) fn replace(path: &Path, file: tempfile::NamedTempFile) -> Result<()> {
     file.persist(path)?;
     Ok(())
 }
 
 #[cfg(windows)]
-fn replace(path: &Path, file: tempfile::NamedTempFile) -> Result<()> {
+pub(crate) fn replace(path: &Path, file: tempfile::NamedTempFile) -> Result<()> {
     use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::ReplaceFileW;
     let wide = |path: &Path| {

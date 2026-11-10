@@ -76,15 +76,26 @@ impl Settings {
             Err(e) => Err(e).with_context(|| format!("Reading {}", path.display())),
         }
     }
-    pub fn save(&self, path: &std::path::Path) -> Result<()> {
+    pub fn update(path: &std::path::Path, edit: impl FnOnce(&mut Self)) -> Result<()> {
         use std::io::Write;
         let dir = path
             .parent()
             .filter(|p| !p.as_os_str().is_empty())
             .unwrap_or(std::path::Path::new("."));
         std::fs::create_dir_all(dir)?;
+        let mut lock_path = path.as_os_str().to_owned();
+        lock_path.push(".lock");
+        let lock = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(lock_path)?;
+        lock.lock()?;
+        let mut settings = Self::load(path)?;
+        edit(&mut settings);
         let mut file = tempfile::NamedTempFile::new_in(dir)?;
-        file.write_all(toml::to_string_pretty(self)?.as_bytes())?;
+        file.write_all(toml::to_string_pretty(&settings)?.as_bytes())?;
         file.as_file().sync_all()?;
         file.persist(path)?;
         Ok(())
@@ -93,5 +104,32 @@ impl Settings {
         self.recent.retain(|value| value != endpoint);
         self.recent.insert(0, endpoint.into());
         self.recent.truncate(20);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn concurrent_settings_updates_preserve_connection_history() -> Result<()> {
+        let directory = tempfile::tempdir()?;
+        let path = directory.path().join("settings.toml");
+        let ready = std::sync::Barrier::new(8);
+        std::thread::scope(|scope| {
+            for index in 0..8 {
+                let path = &path;
+                let ready = &ready;
+                scope.spawn(move || {
+                    ready.wait();
+                    Settings::update(path, |settings| {
+                        settings.remember(&format!("user@host{index}:22"));
+                    })
+                    .unwrap();
+                });
+            }
+        });
+        assert_eq!(Settings::load(&path)?.recent.len(), 8);
+        Ok(())
     }
 }

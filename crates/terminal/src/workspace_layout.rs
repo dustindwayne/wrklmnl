@@ -96,11 +96,8 @@ impl Layout {
         crate::persistence::atomic_write(path, &serde_json::to_vec_pretty(self)?)
     }
 
-    pub fn navigation(&self, editor_open: bool, compact: bool) -> String {
+    pub fn navigation(&self, editor_open: bool) -> String {
         let mut items = Vec::new();
-        if !compact {
-            items.push(r#"t:"Workspace""#.into());
-        }
         let default_order = self.pages == Self::default().pages;
         for page in self.pages {
             if page == Page::Editor && !editor_open {
@@ -200,10 +197,11 @@ mod tests {
         layout.save(&path)?;
         let restored = Layout::load(&path)?;
         assert_eq!(restored, layout);
-        let navigation = restored.navigation(false, false);
+        let navigation = restored.navigation(false);
         assert!(navigation.find("Files@page_7") < navigation.find("Dashboard@page_0"));
         assert!(!navigation.contains("Editor@page_5"));
-        assert!(restored.navigation(true, true).contains("Editor@page_5"));
+        assert!(!navigation.contains("Workspace"));
+        assert!(restored.navigation(true).contains("Editor@page_5"));
         terminal_ui_language::Document::parse(&navigation).unwrap();
         Ok(())
     }

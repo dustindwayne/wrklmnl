@@ -4,7 +4,11 @@
 
 A native workspace for your files, shells, and connections. Point it at your desktop or any folder you already use.
 
-[![Watch the 33-second WRKLMNL feature reel](docs/media/feature-preview.jpg)](docs/media/WRKLMNL-feature-highlight.mp4)
+| Dashboard | Terminals |
+| --- | --- |
+| [![Dashboard with the scratchpad and connection overview](docs/media/dashboard.png)](docs/media/dashboard.png) | [![Two local terminals open side by side](docs/media/terminals.png)](docs/media/terminals.png) |
+| **Connections** | **Files** |
+| [![Serial devices and a saved SSH profile](docs/media/connections.png)](docs/media/connections.png) | [![Desktop file canvas with the Projects folder open in Contents](docs/media/files.png)](docs/media/files.png) |
 
 ## Start with a folder
 

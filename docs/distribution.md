@@ -1,6 +1,38 @@
 # Distribution
 
-The GitHub workflow builds Windows x64. Linux and macOS can build natively from the same checkout using the instructions in the README.
+The GitHub workflow builds Windows x64. The same checkout has native source-build paths for Linux and macOS.
+
+## Build from source
+
+### Windows
+
+Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The [Windows workflow](.github/workflows/windows.yml) tests and builds the x64 release executable using Rust 1.99.1.
+
+```powershell
+cargo test --locked --workspace
+cargo build --locked --release --bin WRKLMNL
+.\target\release\WRKLMNL.exe
+```
+
+### Linux
+
+The x86-64 source build was verified previously on Ubuntu with Rust 1.91.1. Install a C compiler, `pkg-config`, and the libudev development headers. Run the app from an X11 or Wayland graphical session with OpenGL support. Under WSL, use the Linux filesystem for file-move tests.
+
+```bash
+cargo test --locked --workspace
+cargo build --locked --release --bin WRKLMNL
+./target/release/WRKLMNL
+```
+
+### macOS
+
+Install the Xcode Command Line Tools and a native Rust toolchain for Apple Silicon or Intel. Run the same Cargo build from a macOS graphical session. The command produces a native executable in `target/release`. The macOS build is unverified.
+
+```bash
+cargo test --locked --workspace
+cargo build --locked --release --bin WRKLMNL
+./target/release/WRKLMNL
+```
 
 ## Windows release files
 

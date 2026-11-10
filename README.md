@@ -16,7 +16,7 @@ Open WRKLMNL, then choose a folder in **Settings → Workspace**. On Windows, la
 
 ## Dashboard
 
-Keep notes in the scratchpad and add formatting or links to files, folders, and app pages. Notes save automatically. Connections and terminal sessions sit beside the scratchpad. Select **Arrange dashboard** to give another module the wider column or move it to the other side.
+Keep notes in the scratchpad and add formatting or links to files, folders, and app pages. Notes save automatically. Connections and terminal sessions sit beside the scratchpad. Use **Arrange dashboard** to reorder Scratchpad, Connections, and Terminals or move the wider column to the other side.
 
 ## Terminals
 
@@ -34,43 +34,15 @@ Browse your workspace as a desktop canvas. Drag items to move them, open a folde
 
 ## Recent, Settings, and Shortcuts
 
-Reopen a folder from **Recent**. Use **Settings → Layout** to change the order of dashboard modules and sidebar items. The layout saves automatically.
+Reopen a folder from **Recent**. Use **Settings → Layout** to reorder the dashboard and sidebar. The layout saves automatically.
 
 Under **Settings → Appearance**, choose **Basic** for the standard look or **pixel_tech** for charcoal circuit artwork. **Dark** and **Light** are separate from the theme. One accent controls selection, focus, and primary actions. In **Backgrounds**, replace either bar image or switch it to solid, then apply your changes.
 
 See [keyboard shortcuts](KEYBINDINGS.md) for navigation and terminal controls.
 
-## Build from source
+## Build
 
-### Windows
-
-Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The [Windows workflow](.github/workflows/windows.yml) tests and builds the x64 release executable using Rust 1.99.1.
-
-```powershell
-cargo test --locked --workspace
-cargo build --locked --release --bin WRKLMNL
-.\target\release\WRKLMNL.exe
-```
-
-### Linux
-
-The x86-64 source build was verified previously on Ubuntu with Rust 1.91.1. Install a C compiler, `pkg-config`, and the libudev development headers. Run the app from an X11 or Wayland graphical session with OpenGL support. Under WSL, use the Linux filesystem for file-move tests.
-
-```bash
-cargo test --locked --workspace
-cargo build --locked --release --bin WRKLMNL
-./target/release/WRKLMNL
-```
-
-### macOS
-
-Install the Xcode Command Line Tools and a native Rust toolchain for Apple Silicon or Intel. Run the same Cargo build from a macOS graphical session. The command produces a native executable in `target/release`. The macOS build is unverified.
-
-```bash
-cargo test --locked --workspace
-cargo build --locked --release --bin WRKLMNL
-./target/release/WRKLMNL
-```
+Windows is the published release. See the [distribution guide](docs/distribution.md#build-from-source) for source-build commands and prerequisites.
 
 ## Licenses
 

@@ -1,0 +1,178 @@
+{
+  "accesskit@0.17.1": [
+    {
+      "file": "accesskit-0.17.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-APACHE"
+    },
+    {
+      "file": "accesskit-0.17.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-MIT"
+    }
+  ],
+  "accesskit_consumer@0.26.0": [
+    {
+      "file": "accesskit-0.17.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-APACHE"
+    },
+    {
+      "file": "accesskit-0.17.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-MIT"
+    }
+  ],
+  "accesskit_windows@0.24.1": [
+    {
+      "file": "accesskit-0.17.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-APACHE"
+    },
+    {
+      "file": "accesskit-0.17.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-MIT"
+    }
+  ],
+  "accesskit_winit@0.23.1": [
+    {
+      "file": "accesskit-0.17.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/AccessKit/accesskit/405d578cdfd8496ee79020d24cfaac8c29a8a48f/LICENSE-APACHE"
+    }
+  ],
+  "clipboard-win@5.4.1": [
+    {
+      "file": "clipboard-win-5.4.1-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/DoumanAsh/clipboard-win/3b27cf2bfd1adcfa6e0264eb51c1025ddaf0f342/LICENSE"
+    }
+  ],
+  "delegate@0.13.5": [
+    {
+      "file": "delegate-0.13.5-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/kobzol/rust-delegate/b129d4cbf4cc499eff7743365dcb0fe5d8d2e820/LICENSE-APACHE"
+    },
+    {
+      "file": "delegate-0.13.5-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/kobzol/rust-delegate/b129d4cbf4cc499eff7743365dcb0fe5d8d2e820/LICENSE-MIT"
+    }
+  ],
+  "ecolor@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "egui-winit@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "egui@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "egui_glow@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "emath@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "epaint@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    }
+  ],
+  "epaint_default_fonts@0.31.1": [
+    {
+      "file": "ecolor-0.31.1-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-APACHE"
+    },
+    {
+      "file": "ecolor-0.31.1-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/emilk/egui/1669e52a7ccfc3489c1b0999b9ed48894a0b3887/LICENSE-MIT"
+    },
+    {
+      "file": "font-copyright.txt",
+      "source": "Copyright records from the bundled font files"
+    }
+  ],
+  "gl_generator@0.14.0": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/brendanzab/gl-rs/ea503e8d5fb6d73c6030e6191ce738cd3bf3433e/LICENSE"
+    }
+  ],
+  "khronos_api@3.1.0": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/brendanzab/gl-rs/f150967b1c44ae888e6676f93f639ebc82771bdc/LICENSE"
+    },
+    {
+      "file": "khronos-registry.txt",
+      "source": "Copyright and license notices in the packaged Khronos XML registries"
+    }
+  ],
+  "pageant@0.2.5": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/warp-tech/russh/183a22e8f8f490fa09b6eb7bd044ef99d8c4414f/LICENSE.txt"
+    }
+  ],
+  "profiling@1.0.18": [
+    {
+      "file": "profiling-1.0.18-LICENSE-APACHE.txt",
+      "source": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-APACHE"
+    },
+    {
+      "file": "profiling-1.0.18-LICENSE-MIT.txt",
+      "source": "https://raw.githubusercontent.com/aclysma/profiling/8271551172eb6fa4cba47369aedd93790c623df9/LICENSE-MIT"
+    }
+  ],
+  "russh-cryptovec@0.62.0": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/warp-tech/russh/907c732562c5732aad6c140dba958eafddc41ba0/LICENSE.txt"
+    }
+  ],
+  "russh-util@0.52.0": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://crates.io/crates/russh-util/0.52.0 (declared Apache-2.0; text from companion russh package)"
+    }
+  ],
+  "russh@0.65.1": [
+    {
+      "file": "gl_generator-0.14.0-LICENSE.txt",
+      "source": "https://raw.githubusercontent.com/warp-tech/russh/b33092aad1e51c66258a12e8b83fc473a68d9d34/LICENSE.txt"
+    }
+  ]
+}

@@ -22,6 +22,7 @@ mod input;
 mod installed_icon;
 mod keybindings;
 mod launcher;
+mod licenses;
 mod persistence;
 mod pixel_surface;
 mod preview_edit;
@@ -210,7 +211,7 @@ impl Options {
                 }
                 "--help" => {
                     println!("WRKLMNL [FILE] [--open FILE] [--terminal]\n--list-shells: detected shell launch choices as JSON.");
-                    println!("WRKLMNL [--session FOLDER] [--shell PROGRAM] [--light] [--accent RRGGBB]\n  [--state-file FILE] [--ui FILE] [--data JSON_FILE] [--demo]\n  [--run-ui FILE] [--appearance] [--keybindings] [--font FILE] [--font-size N] [--ui-program PROGRAM --ui-arg ARG ...] [-- SHELL_ARGS]\nNo arguments: recent-location dashboard. + opens another window.\n--check-ui FILE: validate; --emit-ui FILE: compile to JSON.\n--self-check: headless PTY and two-way UI integration check.\n--licenses: icon notices.");
+                    println!("WRKLMNL [--session FOLDER] [--shell PROGRAM] [--light] [--accent RRGGBB]\n  [--state-file FILE] [--ui FILE] [--data JSON_FILE] [--demo]\n  [--run-ui FILE] [--appearance] [--keybindings] [--font FILE] [--font-size N] [--ui-program PROGRAM --ui-arg ARG ...] [-- SHELL_ARGS]\nNo arguments: recent-location dashboard. + opens another window.\n--check-ui FILE: validate; --emit-ui FILE: compile to JSON.\n--self-check: headless PTY and two-way UI integration check.\n--licenses: third-party notices.");
                     std::process::exit(0);
                 }
                 "--open" => {
@@ -435,7 +436,7 @@ pub const APP_NAME: &str = "WRKLMNL";
 
 fn main() -> anyhow::Result<()> {
     if std::env::args().nth(1).as_deref() == Some("--licenses") {
-        println!("{}", icons::LICENSE);
+        println!("{}", licenses::notices());
         return Ok(());
     }
     match std::env::args().nth(1).as_deref() {

@@ -316,4 +316,5 @@ pub fn paint(p: &egui::Painter, rect: Rect, icon: Icon, color: Color32) {
     }
 }
 // Retain upstream notices in the executable as well as the source package.
+#[cfg(not(windows))]
 pub const LICENSE: &str = include_str!("../../../assets/icons/LICENSE");

@@ -2,7 +2,7 @@
 
 ![WRKLMNL wordmark](crates/terminal/assets/wordmark.png)
 
-A native workspace for your files, shells, and connections on Windows and Linux. Point it at your desktop or any folder you already use.
+A native workspace for your files, shells, and connections. Point it at your desktop or any folder you already use.
 
 [![Watch the 33-second WRKLMNL feature reel](docs/media/feature-preview.jpg)](docs/media/WRKLMNL-feature-highlight.mp4)
 
@@ -40,7 +40,7 @@ See [keyboard shortcuts](KEYBINDINGS.md) for navigation and terminal controls.
 
 ### Windows
 
-Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The build was verified with Rust 1.99.1.
+Use the Rust MSVC toolchain, Visual Studio C++ Build Tools, and a Windows SDK. The SDK supplies the resource compiler for the launcher icon. The [Windows workflow](.github/workflows/windows.yml) tests and builds the x64 release executable using Rust 1.99.1.
 
 ```powershell
 cargo test --locked --workspace
@@ -50,13 +50,27 @@ cargo build --locked --release --bin WRKLMNL
 
 ### Linux
 
-The x86-64 build was verified on Ubuntu with Rust 1.91.1. Install a C compiler, `pkg-config`, and the libudev development headers. The desktop needs a graphical session with OpenGL support.
+The x86-64 source build was verified previously on Ubuntu with Rust 1.91.1. Install a C compiler, `pkg-config`, and the libudev development headers. Run the app from an X11 or Wayland graphical session with OpenGL support. Under WSL, use the Linux filesystem for file-move tests.
 
 ```bash
 cargo test --locked --workspace
 cargo build --locked --release --bin WRKLMNL
 ./target/release/WRKLMNL
 ```
+
+### macOS
+
+Install the Xcode Command Line Tools and a native Rust toolchain for Apple Silicon or Intel. Run the same Cargo build from a macOS graphical session. The command produces a native executable in `target/release`. The macOS build is unverified.
+
+```bash
+cargo test --locked --workspace
+cargo build --locked --release --bin WRKLMNL
+./target/release/WRKLMNL
+```
+
+## Licenses
+
+WRKLMNL has no project-wide open-source license. Third-party components keep their own terms. See the [Windows third-party notices](THIRD_PARTY_NOTICES.txt) and the [distribution guide](docs/distribution.md) for the bundled fonts, Rust standard library notices, and the corresponding source for MPL-covered dependencies.
 
 ## Source layout
 

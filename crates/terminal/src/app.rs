@@ -801,6 +801,7 @@ impl App {
                 (3, "Backgrounds"),
                 (2, "Custom shells"),
                 (4, "Layout"),
+                (5, "Licenses"),
             ] {
                 if crate::widgets::text_tab(ui, name, self.settings_tab == tab).clicked() {
                     self.settings_tab = tab;
@@ -826,6 +827,10 @@ impl App {
             _ => {}
         }
 
+        if self.settings_tab == 5 {
+            crate::licenses::show(ui);
+            return;
+        }
         if self.settings_tab == 4 {
             let mut layout = self.layout.clone();
             layout.controls(ui);

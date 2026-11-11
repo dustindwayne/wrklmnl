@@ -1,6 +1,7 @@
 """Generate notices and source companions for a locked WRKLMNL build."""
 
 import argparse
+import gzip
 import hashlib
 import json
 from pathlib import Path
@@ -13,6 +14,7 @@ ROOT = Path(__file__).resolve().parents[1]
 WINDOWS = "x86_64-pc-windows-msvc"
 SUPPLEMENTS = ROOT / "licenses" / "upstream"
 NOTICE_NAME = "THIRD_PARTY_NOTICES.txt"
+RUST_NOTICE_ARCHIVE = ROOT / "licenses" / "rust-stdlib-notices.html.gz"
 LICENSE_FILE = re.compile(
     r"^(licen[cs]e|copying|notice|copyright|ofl|ufl|unlicense)(\b|[-_.])",
     re.IGNORECASE,
@@ -102,14 +104,18 @@ def generate(target, dependency_packages):
         "has no project-wide open-source license. The inventory includes the locked",
         "runtime dependencies and build dependencies that may contribute generated code.",
         "",
-        "Rust standard library: see the accompanying RUST-STDLIB-NOTICES.html.",
+        (
+            "Rust standard library: copy the embedded HTML notices from Settings → Licenses."
+            if target == WINDOWS
+            else "Rust standard library: see the accompanying RUST-STDLIB-NOTICES.html."
+        ),
         "The original document is also installed as share/doc/rust/COPYRIGHT-library.html",
         "by the rust-docs component of the Rust toolchain identified above.",
         "",
         "Mozilla Public License 2.0 — corresponding source",
         "The MPL-covered components below are shipped without modifications.",
         "The corresponding Source Code Form is available under MPL-2.0, without charge,",
-        "in the accompanying .crate files or from these exact upstream archives:",
+        "from these exact upstream archives:",
     ]
     for package in mpl:
         name, version = package["name"], package["version"]
@@ -131,13 +137,17 @@ def generate(target, dependency_packages):
     return "\n".join(lines) + "\n", mpl
 
 
-def bundle(folder, notices, mpl):
-    folder.mkdir(parents=True, exist_ok=True)
+def rust_notices():
     sysroot = Path(command("rustc", "--print", "sysroot"))
     rust_notices = sysroot / "share/doc/rust/COPYRIGHT-library.html"
     if not rust_notices.is_file():
         raise SystemExit("Install rust-docs for this toolchain before bundling notices.")
-    shutil.copyfile(rust_notices, folder / "RUST-STDLIB-NOTICES.html")
+    return rust_notices
+
+
+def bundle(folder, notices, mpl):
+    folder.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(rust_notices(), folder / "RUST-STDLIB-NOTICES.html")
     lock = tomllib.loads((ROOT / "Cargo.lock").read_text(encoding="utf-8"))
     checksums = {
         (entry["name"], entry["version"]): entry.get("checksum")
@@ -172,6 +182,13 @@ def main():
             raise SystemExit("Third-party notices are stale. Review and regenerate the notice file.")
     else:
         options.output.write_text(notices, encoding="utf-8", newline="\n")
+    if options.target == WINDOWS and options.output.resolve() == ROOT / NOTICE_NAME:
+        original = rust_notices().read_bytes()
+        if options.check:
+            if gzip.decompress(RUST_NOTICE_ARCHIVE.read_bytes()) != original:
+                raise SystemExit("Embedded Rust standard library notices are stale.")
+        else:
+            RUST_NOTICE_ARCHIVE.write_bytes(gzip.compress(original, mtime=0))
     if options.bundle:
         bundle(options.bundle, notices, mpl)
     print(f"Verified notices for {len(dependency_packages)} registry packages, {len(mpl)} MPL sources.")

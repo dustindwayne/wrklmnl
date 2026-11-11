@@ -19,6 +19,7 @@ struct FolderItem {
 enum Content {
     Folder(Vec<FolderItem>, bool),
     Text(String, bool),
+    Markdown(Vec<pulldown_cmark::Event<'static>>, bool),
     Table(Vec<Vec<String>>, bool),
     Json(serde_json::Value),
     Image(egui::ColorImage, (u32, u32)),
@@ -120,7 +121,7 @@ impl Preview {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui, filter: FileType) -> Option<Action> {
+    pub fn show(&mut self, ui: &mut egui::Ui, filter: FileType, syntax: bool) -> Option<Action> {
         if self.filter != filter {
             self.filter = filter;
             if self.path.is_dir() {
@@ -220,19 +221,22 @@ impl Preview {
         let can_inline_edit = matches!(
             &self.loaded,
             Some(Ok(Loaded {
-                content: Content::Text(_, false) | Content::Json(..) | Content::Table(..),
+                content: Content::Text(_, false) | Content::Markdown(_, false) | Content::Json(..) | Content::Table(..),
                 size: Some(size),
             })) if *size <= BYTE_LIMIT
         );
         let can_open_editor = matches!(
             &self.loaded,
             Some(Ok(Loaded {
-                content: Content::Text(..) | Content::Json(..) | Content::Table(..),
+                content: Content::Text(..)
+                    | Content::Markdown(..)
+                    | Content::Json(..)
+                    | Content::Table(..),
                 ..
             }))
         );
         if self.draft.is_some() {
-            self.show_editor(ui);
+            self.show_editor(ui, syntax);
             return action;
         }
         if !self.edit_status.is_empty() {
@@ -323,12 +327,24 @@ impl Preview {
                         }
                         if text.is_empty() {
                             ui.weak("Empty file");
+                        } else {
+                            let language = crate::highlight::language_for(&self.path);
+                            if language == "plain" {
+                                ui.add(
+                                    egui::Label::new(egui::RichText::new(text).monospace())
+                                        .wrap()
+                                        .selectable(true),
+                                );
+                            } else {
+                                crate::highlight::show_code(ui, text, language, syntax);
+                            }
                         }
-                        ui.add(
-                            egui::Label::new(egui::RichText::new(text).monospace())
-                                .wrap()
-                                .selectable(true),
-                        );
+                    }
+                    Content::Markdown(events, more) => {
+                        if *more {
+                            ui.weak("Showing the first 96 KiB.");
+                        }
+                        crate::markdown_preview::show(ui, events, syntax);
                     }
                     Content::Table(rows, limited) => {
                         ui.weak(if *limited {
@@ -403,7 +419,7 @@ impl Preview {
         }
         action
     }
-    fn show_editor(&mut self, ui: &mut egui::Ui) {
+    fn show_editor(&mut self, ui: &mut egui::Ui, syntax: bool) {
         let mut save =
             ui.input_mut(|input| input.consume_key(egui::Modifiers::COMMAND, egui::Key::S));
         let mut cancel = false;
@@ -433,12 +449,25 @@ impl Preview {
                 Err(error) => self.edit_status = format!("Could not save: {error:#}"),
             }
         }
+        let language = if syntax {
+            crate::highlight::language_for(&self.path)
+        } else {
+            "plain"
+        };
+        let mut layouter = |ui: &egui::Ui, text: &str, width: f32| {
+            let size = egui::TextStyle::Monospace.resolve(ui.style()).size;
+            let mut job =
+                crate::highlight::layout_sized(text, language, !ui.visuals().dark_mode, size);
+            job.wrap.max_width = width;
+            ui.fonts(|fonts| fonts.layout_job(job))
+        };
         egui::ScrollArea::vertical()
             .id_salt("inline_text_editor")
             .show(ui, |ui| {
                 ui.add(
                     egui::TextEdit::multiline(&mut draft.text)
                         .code_editor()
+                        .layouter(&mut layouter)
                         .desired_width(ui.available_width())
                         .desired_rows(12),
                 );
@@ -494,6 +523,12 @@ fn folder_row(ui: &mut egui::Ui, item: &FolderItem) -> egui::Response {
 }
 
 fn text_preview(path: &Path, text: &str, more: bool) -> Content {
+    if crate::highlight::language_for(path) == "markdown" && !text.is_empty() {
+        return Content::Markdown(
+            crate::markdown_preview::parse(text.trim_start_matches('\u{feff}')),
+            more,
+        );
+    }
     let text = text.trim_start_matches('\u{feff}');
     let extension = path
         .extension()
@@ -542,6 +577,9 @@ pub fn image_preview(path: &Path, max: u32) -> anyhow::Result<egui::ColorImage> 
         metadata.is_file() && !crate::file_properties::is_reparse_point(&metadata),
         "Not a regular image"
     );
+    if crate::svg_preview::is_svg(path) {
+        return Ok(crate::svg_preview::render(path, max)?.0);
+    }
     let mut header = [0; 32];
     let mut file = fs::File::open(path)?;
     file.read_exact(&mut header)?;
@@ -624,6 +662,9 @@ fn read_filtered(path: &Path, filter: FileType) -> anyhow::Result<Loaded> {
         && (FileType::Audio.matches(path, false) || FileType::Video.matches(path, false))
     {
         Content::Media
+    } else if metadata.is_file() && crate::svg_preview::is_svg(path) {
+        let (image, dimensions) = crate::svg_preview::render(path, 1600)?;
+        Content::Image(image, dimensions)
     } else if metadata.is_file() {
         let mut file = fs::File::open(path)?;
         let mut data = Vec::new();
@@ -643,8 +684,9 @@ fn read_filtered(path: &Path, filter: FileType) -> anyhow::Result<Loaded> {
                     text_preview(path, text, more)
                 }
                 Err(error) if more && error.error_len().is_none() && !data.contains(&0) => {
-                    Content::Text(
-                        String::from_utf8_lossy(&data[..error.valid_up_to()]).into_owned(),
+                    text_preview(
+                        path,
+                        &String::from_utf8_lossy(&data[..error.valid_up_to()]),
                         true,
                     )
                 }
@@ -707,6 +749,44 @@ mod tests {
             text_preview(Path::new("sample.json"), "invalid", false),
             Content::Text(..)
         ));
+    }
+
+    #[test]
+    fn markdown_preview_keeps_headings_and_fenced_code() -> anyhow::Result<()> {
+        use pulldown_cmark::{CodeBlockKind, Event, HeadingLevel, Tag};
+
+        let folder = tempfile::tempdir()?;
+        let file = folder.path().join("guide.MD");
+        fs::write(&file, "# Setup\n\n```rust\nfn main() {}\n```\n")?;
+        let Content::Markdown(events, false) = read(&file)?.content else {
+            anyhow::bail!("Expected rendered Markdown");
+        };
+        assert!(events.iter().any(|event| matches!(
+            event,
+            Event::Start(Tag::Heading {
+                level: HeadingLevel::H1,
+                ..
+            })
+        )));
+        assert!(events.iter().any(|event| matches!(event, Event::Start(Tag::CodeBlock(CodeBlockKind::Fenced(language))) if language.as_ref() == "rust")));
+        Ok(())
+    }
+
+    #[test]
+    fn svg_preview_renders_large_vectors_at_preview_size() -> anyhow::Result<()> {
+        let folder = tempfile::tempdir()?;
+        let file = folder.path().join("image.SVG");
+        fs::write(
+            &file,
+            r#"<svg xmlns="http://www.w3.org/2000/svg" width="3200" height="1600"><rect width="3200" height="1600" fill="red"/></svg>"#,
+        )?;
+        let Content::Image(image, dimensions) = read(&file)?.content else {
+            anyhow::bail!("Expected an SVG preview image");
+        };
+        assert_eq!(dimensions, (3200, 1600));
+        assert_eq!(image.size, [1600, 800]);
+        assert_eq!(image.pixels[0], egui::Color32::RED);
+        Ok(())
     }
 
     #[test]

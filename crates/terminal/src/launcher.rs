@@ -256,7 +256,7 @@ impl Workspace {
         }
     }
 
-    pub fn show(&mut self, ui: &mut egui::Ui) -> Option<Action> {
+    pub fn show(&mut self, ui: &mut egui::Ui, syntax: bool) -> Option<Action> {
         if !self.loaded {
             self.browse(self.root.clone());
         }
@@ -367,15 +367,29 @@ impl Workspace {
                         };
                         self.new_folder = None;
                     }
-                    crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("files_type"))
-                        .selected_text(self.file_type.label())
-                        .show_ui(ui, |ui| {
-                            for kind in FileType::CHOICES {
-                                ui.selectable_value(&mut self.file_type, kind, kind.label());
-                            }
-                        })
-                        .response
-                        .on_hover_text("Filter by file type");
+                    ui.scope(|ui| {
+                        let popup_widgets = ui.visuals().widgets.clone();
+                        let widgets = &mut ui.visuals_mut().widgets;
+                        for widget in [
+                            &mut widgets.inactive,
+                            &mut widgets.hovered,
+                            &mut widgets.active,
+                            &mut widgets.open,
+                        ] {
+                            widget.weak_bg_fill = egui::Color32::TRANSPARENT;
+                        }
+                        crate::icons::combo_menu_icon(egui::ComboBox::from_id_salt("files_type"))
+                            .selected_text(self.file_type.label())
+                            .show_ui(ui, |ui| {
+                                ui.visuals_mut().widgets = popup_widgets;
+                                for kind in FileType::CHOICES {
+                                    ui.selectable_value(&mut self.file_type, kind, kind.label());
+                                }
+                            })
+                    })
+                    .inner
+                    .response
+                    .on_hover_text("Filter by file type");
                     let contents = button(
                         ui,
                         Icon::Preview,
@@ -504,7 +518,7 @@ impl Workspace {
                 .corner_radius(4);
             if expanded {
                 frame.show(ui, |ui| {
-                    preview_action = preview.show(ui, self.file_type);
+                    preview_action = preview.show(ui, self.file_type, syntax);
                 });
             } else if ui.available_width() >= 650.0 {
                 let width = (ui.available_width() * 0.39).clamp(280.0, 570.0);
@@ -515,7 +529,7 @@ impl Workspace {
                     .show_separator_line(false)
                     .frame(frame)
                     .show_inside(ui, |ui| {
-                        preview_action = preview.show(ui, self.file_type);
+                        preview_action = preview.show(ui, self.file_type, syntax);
                     });
             } else {
                 let height = (ui.available_height() * 0.48).max(130.0);
@@ -526,7 +540,7 @@ impl Workspace {
                     .show_separator_line(false)
                     .frame(frame)
                     .show_inside(ui, |ui| {
-                        preview_action = preview.show(ui, self.file_type);
+                        preview_action = preview.show(ui, self.file_type, syntax);
                     });
             }
         } else {
@@ -1102,7 +1116,7 @@ mod tests {
             },
             |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
-                    workspace.show(ui);
+                    workspace.show(ui, true);
                 });
             },
         );

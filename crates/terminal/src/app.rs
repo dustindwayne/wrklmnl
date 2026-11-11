@@ -631,8 +631,7 @@ impl App {
         ] {
             widget.corner_radius = radius;
         }
-        let width = ui.available_width().min(1120.0);
-        ui.set_max_width(width);
+        let width = ui.available_width();
         ui.horizontal(|ui| {
             ui.heading("Dashboard");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1469,7 +1468,7 @@ impl eframe::App for App {
                         }
                     }
                 }
-                7 => match self.launcher.show(ui) {
+                7 => match self.launcher.show(ui, self.appearance.syntax) {
                     Some(crate::launcher::Action::Terminal(folder)) => {
                         self.folder = crate::history::display_path(&folder);
                         self.open_session();

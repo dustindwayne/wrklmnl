@@ -3,6 +3,48 @@ use eframe::egui::{
     text::{LayoutJob, TextFormat},
     Color32, FontId,
 };
+use std::path::Path;
+
+pub fn language_for(path: &Path) -> &'static str {
+    language(path.extension().and_then(|ext| ext.to_str()).unwrap_or(""))
+}
+
+pub fn language(name: &str) -> &'static str {
+    match name.to_ascii_lowercase().as_str() {
+        "rs" | "rust" => "rust",
+        "py" | "python" => "python",
+        "js" | "jsx" | "mjs" | "javascript" => "javascript",
+        "ts" | "tsx" | "typescript" => "typescript",
+        "json" => "json",
+        "ps1" | "psm1" | "powershell" => "powershell",
+        "bat" | "cmd" => "cmd",
+        "sh" | "bash" | "shell" | "zsh" => "bash",
+        "md" | "markdown" => "markdown",
+        "xml" | "html" | "htm" | "svg" => "xml",
+        "c" | "h" | "cpp" | "hpp" | "cc" | "cxx" | "cs" | "java" | "go" => "c",
+        "css" => "css",
+        "toml" | "yaml" | "yml" => "config",
+        _ => "plain",
+    }
+}
+
+pub fn show_code(ui: &mut eframe::egui::Ui, text: &str, language: &str, syntax: bool) {
+    use eframe::egui;
+    egui::Frame::NONE
+        .fill(ui.visuals().extreme_bg_color)
+        .corner_radius(4)
+        .inner_margin(8)
+        .show(ui, |ui| {
+            let size = egui::TextStyle::Monospace.resolve(ui.style()).size;
+            let job = layout_sized(
+                text,
+                if syntax { language } else { "plain" },
+                !ui.visuals().dark_mode,
+                size,
+            );
+            ui.add(egui::Label::new(job).wrap().selectable(true));
+        });
+}
 
 #[cfg(test)]
 pub fn layout(text: &str, language: &str, light: bool) -> LayoutJob {
@@ -45,10 +87,10 @@ pub fn layout_sized(text: &str, language: &str, light: bool, size: f32) -> Layou
         let start = i;
         let c = chars[i].1;
         let mut color = base;
-        if (c == '#' && matches!(language, "powershell" | "bash" | "python" | "ui"))
+        if (c == '#' && matches!(language, "powershell" | "bash" | "python" | "ui" | "config"))
             || (c == '/'
                 && chars.get(i + 1).is_some_and(|(_, c)| *c == '/')
-                && matches!(language, "rust" | "javascript" | "typescript"))
+                && matches!(language, "rust" | "javascript" | "typescript" | "c"))
         {
             color = muted;
             while i < chars.len() && chars[i].1 != '\n' {
@@ -181,7 +223,40 @@ pub fn layout_sized(text: &str, language: &str, light: bool, size: f32) -> Layou
                     "magenta",
                     "transparent",
                 ],
-                "json" => &["true", "false", "null"],
+                "c" => &[
+                    "bool",
+                    "char",
+                    "class",
+                    "const",
+                    "double",
+                    "else",
+                    "enum",
+                    "false",
+                    "float",
+                    "for",
+                    "func",
+                    "if",
+                    "import",
+                    "int",
+                    "let",
+                    "namespace",
+                    "new",
+                    "null",
+                    "package",
+                    "private",
+                    "public",
+                    "return",
+                    "static",
+                    "struct",
+                    "switch",
+                    "true",
+                    "typedef",
+                    "using",
+                    "var",
+                    "void",
+                    "while",
+                ],
+                "json" | "config" => &["true", "false", "null"],
                 _ => &[],
             };
             if keywords.contains(&token)

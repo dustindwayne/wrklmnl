@@ -1,6 +1,6 @@
 [package]
 name = "dterm"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 rust-version = "1.89"
 default-run = "WRKLMNL"
@@ -25,6 +25,8 @@ portable-pty = "0.9"
 vt100 = "0.17"
 ab_glyph = "0.2"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+pulldown-cmark = { version = "=0.13.0", default-features = false }
+resvg = { version = "=0.45.1", default-features = false, features = ["text"] }
 
 clap = { version = "4", features = ["derive"] }
 directories = "6"
@@ -40,6 +42,7 @@ russh = { version = "=0.65.1", default-features = false, features = ["ring", "rs
 russh-sftp = "=3.0.1"
 
 [target.'cfg(windows)'.dependencies]
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 windows-sys = { version = "0.59", features = ["Win32_Storage_FileSystem", "Win32_System_Registry", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
 
 

@@ -21,8 +21,8 @@ jobs:
         run: rustup toolchain install 1.99.1 --profile minimal --component rustfmt --component rust-docs
       - name: Check formatting
         run: cargo fmt --all -- --check
-      - name: Check notices and prepare distribution files
-        run: python scripts/third_party_notices.py --check --bundle dist
+      - name: Check embedded notices
+        run: python scripts/third_party_notices.py --check
       - name: Run tests
         run: cargo test --locked --workspace --target x86_64-pc-windows-msvc
       - name: Build Windows release executable
@@ -30,25 +30,5 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           path: target/x86_64-pc-windows-msvc/release/WRKLMNL.exe
-          archive: false
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/THIRD_PARTY_NOTICES.txt
-          archive: false
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/RUST-STDLIB-NOTICES.html
-          archive: false
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/serialport-4.10.1.crate
-          archive: false
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          path: dist/option-ext-0.2.0.crate
           archive: false
           if-no-files-found: error

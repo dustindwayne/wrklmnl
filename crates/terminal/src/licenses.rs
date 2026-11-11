@@ -12,15 +12,26 @@ pub fn notices() -> &'static str {
 
 pub fn show(ui: &mut egui::Ui) {
     ui.heading("Licenses");
-    ui.weak("Third-party components are covered by their own licenses.");
-    ui.add_space(8.0);
-    ui.label("The release includes dependency and font notices, Rust standard library notices, and the source archives for the MPL-covered components.");
     ui.hyperlink_to(
-        "Open release notices and source",
-        "https://github.com/dustindwayne/wrklmnl/releases",
+        "Third-party notices and source",
+        "https://github.com/dustindwayne/wrklmnl/blob/main/docs/distribution.md#notices-and-source",
     );
     #[cfg(windows)]
-    if crate::widgets::button(ui, "Copy Windows third-party notices").clicked() {
-        ui.ctx().copy_text(notices().into());
+    {
+        use std::io::Read;
+
+        if crate::widgets::button(ui, "Copy third-party notices").clicked() {
+            ui.ctx().copy_text(notices().into());
+        }
+        if crate::widgets::button(ui, "Copy Rust standard library notices (HTML)").clicked() {
+            let compressed = include_bytes!("../../../licenses/rust-stdlib-notices.html.gz");
+            let mut html = String::new();
+            match flate2::read::GzDecoder::new(compressed.as_slice()).read_to_string(&mut html) {
+                Ok(_) => ui.ctx().copy_text(html),
+                Err(error) => {
+                    ui.label(format!("Could not read Rust notices. {error}"));
+                }
+            }
+        }
     }
 }

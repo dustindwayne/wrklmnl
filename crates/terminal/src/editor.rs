@@ -1,6 +1,6 @@
 use crate::{
     completion::{byte_cursor, Completion, Context},
-    highlight,
+    highlight::{self, language_for},
 };
 use eframe::egui;
 use std::{
@@ -151,6 +151,10 @@ impl Editor {
                     for lang in [
                         "plain",
                         "markdown",
+                        "xml",
+                        "config",
+                        "c",
+                        "css",
                         "rust",
                         "python",
                         "javascript",
@@ -345,26 +349,6 @@ fn read_text(path: &Path) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|_| "This file must contain UTF-8 text.".into())
 }
 
-fn language_for(path: &Path) -> &'static str {
-    match path
-        .extension()
-        .and_then(|s| s.to_str())
-        .unwrap_or("")
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "rs" => "rust",
-        "py" => "python",
-        "js" | "jsx" => "javascript",
-        "ts" | "tsx" => "typescript",
-        "json" => "json",
-        "ps1" | "psm1" => "powershell",
-        "bat" | "cmd" => "cmd",
-        "sh" | "bash" => "bash",
-        "md" => "markdown",
-        _ => "plain",
-    }
-}
 #[cfg(test)]
 mod tests {
     use super::*;

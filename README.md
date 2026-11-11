@@ -30,7 +30,7 @@ Open **File transfer** to browse local and remote folders side by side. SFTP upl
 
 ## Files
 
-Browse your workspace as a desktop canvas. Drag items to move them, open a folder in **Contents**, or preview a file beside the canvas. Lightweight text files can be edited in place. Choose a file type to sort matching items by modification date, newest first. Play supported audio and video in Contents with FFmpeg installed and `ffprobe`, `ffmpeg`, and `ffplay` on PATH. Open **Properties** for the path, name, timestamps, and permissions.
+Browse your workspace as a desktop canvas. Drag items to move them, open a folder in **Contents**, or preview a file beside the canvas. Preview SVG images, rendered Markdown, and highlighted code. Lightweight text files can be edited in place. Choose a file type to sort matching items by modification date, newest first. Play supported audio and video in Contents with FFmpeg installed and `ffprobe`, `ffmpeg`, and `ffplay` on PATH. Open **Properties** for the path, name, timestamps, and permissions.
 
 ## Recent, Settings, and Shortcuts
 

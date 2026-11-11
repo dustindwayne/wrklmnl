@@ -34,16 +34,11 @@ cargo build --locked --release --bin WRKLMNL
 ./target/release/WRKLMNL
 ```
 
-## Windows release files
+## Notices and source
 
-| File | Purpose |
-| --- | --- |
-| `WRKLMNL.exe` | Optimized desktop executable |
-| `THIRD_PARTY_NOTICES.txt` | Windows dependency inventory, license texts, icon and font notices, and source links |
-| `RUST-STDLIB-NOTICES.html` | Standard library copyright notices shipped with the release toolchain |
-| `serialport-4.10.1.crate` and `option-ext-0.2.0.crate` | Exact, unmodified MPL-2.0 source archives from the locked build |
+The Windows release ships as `WRKLMNL.exe`. **Settings → Licenses** provides the embedded third-party and Rust standard library notices. The repository also contains the [third-party notices](../THIRD_PARTY_NOTICES.txt) and [compressed Rust standard library notices](../licenses/rust-stdlib-notices.html.gz).
 
-Keep these files together on the release page. The MPL covers the named dependency files. WRKLMNL’s own code has no project-wide open-source license.
+The exact, unmodified source archives for [serialport 4.10.1](https://static.crates.io/crates/serialport/serialport-4.10.1.crate) and [option-ext 0.2.0](https://static.crates.io/crates/option-ext/option-ext-0.2.0.crate) are available under [MPL-2.0](https://www.mozilla.org/en-US/MPL/2.0/). WRKLMNL’s own code has no project-wide open-source license.
 
 ## Reproduce the notices
 
@@ -52,10 +47,10 @@ Use Python 3.11 or later and the same Rust toolchain as the executable. Install 
 ```powershell
 rustup component add rust-docs --toolchain 1.99.1
 $env:RUSTUP_TOOLCHAIN = '1.99.1'
-python scripts/third_party_notices.py --check --bundle dist
+python scripts/third_party_notices.py --check
 ```
 
-For a dependency or toolchain update, review the license changes and regenerate `THIRD_PARTY_NOTICES.txt` by running the same script without `--check`. The script collects the locked runtime and build dependencies. It stops on unreviewed license identifiers or missing texts and verifies MPL source archives against `Cargo.lock`. The [supplement index](../licenses/upstream/sources.json) records license texts omitted from their registry packages.
+For a dependency or toolchain update, review the license changes and regenerate the embedded notices by running the same script without `--check`. The script collects the locked runtime and build dependencies and stops on unreviewed license identifiers or missing texts. The [supplement index](../licenses/upstream/sources.json) records license texts omitted from their registry packages.
 
 For a Linux or macOS distribution, run the script on the native build host. Pass the Rust host triple as `--target`, set `--output` to a platform-specific notice file, and use `--bundle` to stage the accompanying files. Review any newly resolved dependencies and provide their upstream texts before distributing. The checked-in notices describe Windows x64.
 

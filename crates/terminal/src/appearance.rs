@@ -370,7 +370,11 @@ impl Appearance {
                 ui.label(egui::RichText::new("Terminal rendering").strong());
                 ui.add_space(12.0);
                 ui.checkbox(&mut self.syntax, "Syntax highlighting");
-                ui.label(egui::RichText::new("Color the live command line and code editor. Shell-provided colors are preserved.").small().color(ui.visuals().weak_text_color()));
+                ui.label(
+                    egui::RichText::new("Highlight code in terminals, file previews, and editors.")
+                        .small()
+                        .color(ui.visuals().weak_text_color()),
+                );
                 ui.add_space(28.0);
                 ui.label(egui::RichText::new("Terminal text size").strong());
                 ui.add_space(8.0);

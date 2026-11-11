@@ -1,4 +1,4 @@
-# WRKLMNL
+# WRKLMNL — Work Liminal
 
 ![WRKLMNL wordmark](crates/terminal/assets/wordmark.png)
 
